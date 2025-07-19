@@ -1,0 +1,47 @@
+{
+  "name": "Conversation Flow Subflow",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Function Node: Conversation Flow Logic\nconst webhookData = $json.webhookData;\nconst callerInfo = $json;\nconst speechResult = webhookData.SpeechResult;\nconst callSid = webhookData.CallSid;\n\n// Determine conversation state based on caller info and speech\nlet conversationState = 'initial';\nlet followUpQuestion = null;\n\nif (callerInfo.isReturningCaller) {\n  if (speechResult && speechResult.toLowerCase().includes('yes')) {\n    conversationState = 'extract_project_details';\n  } else {\n    conversationState = 'returning_caller_greeting';\n  }\n} else {\n  conversationState = 'new_caller_greeting';\n}\n\n// Set conversation cues based on state\nlet conversationCues = callerInfo.conversationCues;\n\nif (conversationState === 'new_caller_greeting') {\n  conversationCues = {\n    welcomeMessage: \"Hi! I'm here to help you generate a construction contract. What's the name of your business?\",\n    contactQuestion: \"What's the best way to get this to you — text or email?\"\n  };\n} else if (conversationState === 'returning_caller_greeting') {\n  conversationCues = {\n    welcomeMessage: callerInfo.conversationCues.welcomeMessage,\n    contactConfirmation: callerInfo.conversationCues.contactConfirmation\n  };\n}\n\nreturn {\n  conversationState,\n  followUpQuestion,\n  callerInfo: conversationCues,\n  callSid: callSid,\n  speechResult: speechResult,\n  isReturningCaller: callerInfo.isReturningCaller\n};"
+      },
+      "id": "conversation-flow",
+      "name": "Conversation Flow",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Function Node: Twilio Response Templates\nconst conversationState = $json.conversationState;\nconst followUpQuestion = $json.question;\nconst callerInfo = $json.callerInfo;\nconst extractedData = $json.extractedData;\n\n// Base TwiML template\nconst createTwiML = (message, gatherOptions = {}) => {\n  const defaultGather = {\n    input: 'speech',\n    timeout: 10,\n    speechTimeout: 'auto',\n    action: '/webhook/process-speech',\n    method: 'POST'\n  };\n  \n  const gather = { ...defaultGather, ...gatherOptions };\n  \n  return `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response>\n  <Say voice=\"alice\">${message}</Say>\n  <Gather input=\"${gather.input}\" \n          timeout=\"${gather.timeout}\" \n          speechTimeout=\"${gather.speechTimeout}\"\n          action=\"${gather.action}\" \n          method=\"${gather.method}\">\n    <Say voice=\"alice\">I didn't catch that. Could you repeat?</Say>\n  </Gather>\n  <Say voice=\"alice\">Thanks for calling. We'll follow up with you soon.</Say>\n  <Hangup/>\n</Response>`;\n};\n\n// Response templates for different scenarios\nconst responseTemplates = {\n  newCallerGreeting: () => {\n    const message = `Hi! I'm here to help you generate a construction contract. ${callerInfo.welcomeMessage}`;\n    return createTwiML(message);\n  },\n  \n  returningCallerGreeting: () => {\n    const message = callerInfo.welcomeMessage;\n    return createTwiML(message);\n  },\n  \n  followUpQuestion: () => {\n    const message = followUpQuestion;\n    return createTwiML(message);\n  },\n  \n  completion: () => {\n    const message = `Perfect! I've got all the details for your ${extractedData.project_type} project. I'll generate the contract and send it to you right away. Thanks for calling!`;\n    return createTwiML(message, { action: '/webhook/end-call' });\n  },\n  \n  error: (errorMessage = \"I'm having trouble processing that. Let me start over.\") => {\n    return createTwiML(errorMessage, { action: '/webhook/restart' });\n  }\n};\n\n// Determine which template to use\nlet response;\nswitch (conversationState) {\n  case 'new_caller_greeting':\n    response = responseTemplates.newCallerGreeting();\n    break;\n  case 'returning_caller_greeting':\n    response = responseTemplates.returningCallerGreeting();\n    break;\n  case 'follow_up':\n    response = responseTemplates.followUpQuestion();\n    break;\n  case 'complete':\n    response = responseTemplates.completion();\n    break;\n  case 'error':\n    response = responseTemplates.error();\n    break;\n  default:\n    response = responseTemplates.error();\n}\n\nreturn {\n  twiML: response,\n  conversationState,\n  callerInfo,\n  followUpQuestion\n};"
+      },
+      "id": "twilio-response",
+      "name": "Twilio Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    }
+  ],
+  "connections": {
+    "Conversation Flow": {
+      "main": [
+        [
+          {
+            "node": "Twilio Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["conversation-flow", "twilio"],
+  "triggerCount": 0,
+  "updatedAt": "2025-01-15T10:00:00.000Z",
+  "versionId": "1"
+} 

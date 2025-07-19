@@ -1,0 +1,180 @@
+{
+  "name": "Enhanced Caller Directory Integration",
+  "nodes": [
+    {
+      "parameters": {
+        "functionCode": "// Enhanced Caller Lookup with phone normalization\nconst callerPhone = $json.callerPhone;\nconst callSid = $json.callSid;\n\n// Phone number normalization function\nconst normalizePhoneNumber = (phone) => {\n  if (!phone) return null;\n  \n  let normalized = phone.replace(/[^\\d+]/g, '');\n  \n  if (!normalized.startsWith('+')) {\n    if (normalized.length === 10) {\n      normalized = '+1' + normalized;\n    } else if (normalized.length === 11 && normalized.startsWith('1')) {\n      normalized = '+' + normalized;\n    }\n  }\n  \n  const e164Pattern = /^\\+[1-9]\\d{1,14}$/;\n  return e164Pattern.test(normalized) ? normalized : null;\n};\n\nconst normalizedPhone = normalizePhoneNumber(callerPhone);\n\nif (!normalizedPhone) {\n  return {\n    error: 'INVALID_PHONE_NUMBER',\n    message: 'Phone number format is invalid',\n    originalPhone: callerPhone,\n    callSid: callSid\n  };\n}\n\n// Get caller directory data from previous node\nconst callerDirectory = $json.data || [];\n\n// Find matching caller with multiple format support\nconst findCaller = (phoneNumber) => {\n  return callerDirectory.find(caller => {\n    const callerPhone = caller[0]; // phone_number column\n    if (!callerPhone) return false;\n    \n    const formats = [\n      phoneNumber,\n      phoneNumber.replace('+1', ''),\n      '+1' + phoneNumber.replace('+1', ''),\n      phoneNumber.replace('+', ''),\n      '+' + phoneNumber.replace('+', '')\n    ];\n    \n    return formats.includes(callerPhone);\n  });\n};\n\nconst existingCaller = findCaller(normalizedPhone);\n\nif (existingCaller) {\n  return {\n    isReturningCaller: true,\n    callerData: {\n      phone_number: existingCaller[0],\n      business_name: existingCaller[1],\n      contact_email: existingCaller[2],\n      contact_method: existingCaller[3],\n      is_repeat: true,\n      last_contact_date: existingCaller[5],\n      created_date: existingCaller[6],\n      call_count: parseInt(existingCaller[7]) || 1\n    },\n    conversationCues: {\n      welcomeMessage: `Welcome back! Should we still send this to ${existingCaller[1]}?`,\n      contactConfirmation: `Still OK to send the contract to ${existingCaller[3]}?`,\n      businessName: existingCaller[1],\n      preferredContact: existingCaller[3]\n    },\n    lookupInfo: {\n      originalPhone: callerPhone,\n      normalizedPhone: normalizedPhone,\n      callSid: callSid,\n      lookupTimestamp: new Date().toISOString()\n    },\n    // Map to existing workflow fields\n    name: existingCaller[1],\n    is_Repeat: 'Yes',\n    // Preserve existing data\n    ...$json\n  };\n} else {\n  return {\n    isReturningCaller: false,\n    callerData: {\n      phone_number: normalizedPhone,\n      business_name: null,\n      contact_email: null,\n      contact_method: null,\n      is_repeat: false,\n      last_contact_date: new Date().toISOString().split('T')[0],\n      created_date: new Date().toISOString().split('T')[0],\n      call_count: 1\n    },\n    conversationCues: {\n      welcomeMessage: \"What's the name of your business?\",\n      contactQuestion: \"What's the best way to get this to you — text or email?\",\n      businessName: null,\n      preferredContact: null\n    },\n    lookupInfo: {\n      originalPhone: callerPhone,\n      normalizedPhone: normalizedPhone,\n      callSid: callSid,\n      lookupTimestamp: new Date().toISOString()\n    },\n    // Map to existing workflow fields\n    name: null,\n    is_Repeat: 'No',\n    // Preserve existing data\n    ...$json\n  };\n}"
+      },
+      "id": "enhanced-caller-lookup",
+      "name": "Enhanced Caller Lookup",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1600,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "sheetId": "122w46mkzpgbK-7z4GUnwZ87q18eUXQhK9IDoElv4_88",
+        "range": "CallerDirectory!A:H",
+        "options": {}
+      },
+      "id": "enhanced-caller-directory",
+      "name": "Enhanced Caller Directory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [
+        -1820,
+        -80
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "BaM9ecgM7tTRQieT",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Enhanced Caller Update Logic\nconst callerData = $json.callerData;\nconst extractedData = $json.extractedData;\nconst callSid = $json.callSid;\n\n// Data sanitization functions\nconst sanitizeData = {\n  phoneNumber: (phone) => {\n    if (!phone) return null;\n    return phone.replace(/[^\\d+]/g, '').replace(/^(\\d{10})$/, '+1$1').replace(/^(\\d{11})$/, '+$1');\n  },\n  \n  businessName: (name) => {\n    if (!name) return null;\n    return name.trim().replace(/\\s+/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase());\n  },\n  \n  contactEmail: (email) => {\n    if (!email) return null;\n    return email.trim().toLowerCase();\n  },\n  \n  contactMethod: (method) => {\n    if (!method) return null;\n    const normalized = method.toLowerCase().trim();\n    return ['sms', 'email'].includes(normalized) ? normalized : null;\n  }\n};\n\n// Prepare update data\nconst today = new Date().toISOString().split('T')[0];\n\nconst updateData = {\n  phone_number: sanitizeData.phoneNumber(callerData.phone_number),\n  business_name: sanitizeData.businessName(callerData.business_name || extractedData.business_name),\n  contact_email: sanitizeData.contactEmail(callerData.contact_email || extractedData.contact_email),\n  contact_method: sanitizeData.contactMethod(callerData.contact_method || extractedData.preferred_contact_method),\n  is_repeat: true,\n  last_contact_date: today,\n  created_date: callerData.created_date || today,\n  call_count: (parseInt(callerData.call_count) || 0) + 1\n};\n\nreturn {\n  updateData,\n  callSid: callSid,\n  timestamp: new Date().toISOString(),\n  // Preserve existing data\n  ...$json\n};"
+      },
+      "id": "enhanced-caller-update",
+      "name": "Enhanced Caller Update",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1380,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "sheetId": "122w46mkzpgbK-7z4GUnwZ87q18eUXQhK9IDoElv4_88",
+        "sheetName": "CallerDirectory",
+        "columnToMatchOn": "phone_number",
+        "valueToMatchOn": "={{ $json.updateData.phone_number }}",
+        "valueInputOption": "RAW",
+        "fieldsUi": {
+          "values": [
+            {
+              "column": "phone_number",
+              "fieldValue": "={{ $json.updateData.phone_number }}"
+            },
+            {
+              "column": "business_name",
+              "fieldValue": "={{ $json.updateData.business_name }}"
+            },
+            {
+              "column": "contact_email",
+              "fieldValue": "={{ $json.updateData.contact_email }}"
+            },
+            {
+              "column": "contact_method",
+              "fieldValue": "={{ $json.updateData.contact_method }}"
+            },
+            {
+              "column": "is_repeat",
+              "fieldValue": "={{ $json.updateData.is_repeat }}"
+            },
+            {
+              "column": "last_contact_date",
+              "fieldValue": "={{ $json.updateData.last_contact_date }}"
+            },
+            {
+              "column": "created_date",
+              "fieldValue": "={{ $json.updateData.created_date }}"
+            },
+            {
+              "column": "call_count",
+              "fieldValue": "={{ $json.updateData.call_count }}"
+            }
+          ]
+        }
+      },
+      "id": "update-caller-directory",
+      "name": "Update Caller Directory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        -1160,
+        -80
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "BaM9ecgM7tTRQieT",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json[\"isReturningCaller\"]}}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "enhanced-repeat-caller-check",
+      "name": "Enhanced: Repeat Caller Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -940,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Enhanced Caller Directory": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Caller Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Caller Lookup": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Caller Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Caller Update": {
+      "main": [
+        [
+          {
+            "node": "Update Caller Directory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Caller Directory": {
+      "main": [
+        [
+          {
+            "node": "Enhanced: Repeat Caller Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+} 

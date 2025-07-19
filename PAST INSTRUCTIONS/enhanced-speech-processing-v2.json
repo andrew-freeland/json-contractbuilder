@@ -1,0 +1,83 @@
+{
+  "name": "Enhanced Speech Processing V2",
+  "nodes": [
+    {
+      "parameters": {
+        "functionCode": "// Enhanced Speech Processing with Conversation Context\nconst speechResult = $json.speechResult;\nconst callSid = $json.callSid;\nconst conversationContext = $json.conversationContext || {};\nconst retryCount = conversationContext.retryCount || 0;\n\n// Configuration\nconst config = {\n  maxRetries: 3,\n  confidenceThreshold: 0.7,\n  requiredFields: ['business_name', 'project_type', 'budget'],\n  fallbackPrompts: [\n    'Could you tell me about your construction project?',\n    'What type of work are you looking to have done?',\n    'Can you describe your project in detail?'\n  ]\n};\n\n// Validate input\nif (!speechResult) {\n  return {\n    error: 'NO_SPEECH',\n    message: 'No speech detected',\n    callSid: callSid,\n    conversationContext: {\n      ...conversationContext,\n      lastError: 'NO_SPEECH',\n      retryCount: retryCount + 1\n    }\n  };\n}\n\n// Check retry limit\nif (retryCount >= config.maxRetries) {\n  return {\n    error: 'MAX_RETRIES_EXCEEDED',\n    message: 'Maximum retry attempts reached',\n    callSid: callSid,\n    conversationContext: {\n      ...conversationContext,\n      lastError: 'MAX_RETRIES_EXCEEDED',\n      retryCount: retryCount\n    }\n  };\n}\n\n// Build context-aware prompt\nconst buildPrompt = () => {\n  const basePrompt = `You are a construction contract specialist. Extract project metadata from voice messages into structured JSON. Only return valid JSON, no explanations.\n\nRequired fields to extract:\n- business_name: Company name (string)\n- project_type: Type of project (string)\n- project_address: Full address (string)\n- scope: Project description (string)\n- budget: Total cost (string with $)\n- payment_terms: Payment structure (string)\n- materials_by: \"client\" or \"contractor\" (string)\n- license_number: GC license if mentioned (string or null)\n- start_date: Project start date (string or null)\n- end_date: Project end date (string or null)\n- preferred_contact_method: \"SMS\" or \"email\" (string or null)\n\nRules:\n- If field not mentioned, use null\n- Keep original wording for addresses and scope\n- Extract dollar amounts as \"$X,XXX\" format\n- Payment terms as \"X%/Y%/Z% split\" or \"monthly\" etc.\n- Dates as \"Month Day\" or \"Month Year\" format`;\n\n  // Add context if available\n  if (conversationContext.previousQuestions && conversationContext.previousQuestions.length > 0) {\n    const contextPrompt = `\\n\\nPrevious conversation context:\\n${conversationContext.previousQuestions.map(q => `- ${q}`).join('\\n')}\\n\\nUse this context to improve extraction accuracy.`;\n    return basePrompt + contextPrompt;\n  }\n\n  return basePrompt;\n};\n\n// Build user prompt with retry logic\nconst buildUserPrompt = () => {\n  if (retryCount > 0) {\n    const fallbackPrompt = config.fallbackPrompts[retryCount - 1] || config.fallbackPrompts[0];\n    return `Previous attempt failed. Please try again with: \"${fallbackPrompt}\"\\n\\nCurrent speech: \"${speechResult}\"\\n\\nReturn only valid JSON with the required fields.`;\n  }\n\n  return `Extract project metadata from this voice message:\\n\\n\"${speechResult}\"\\n\\nReturn only valid JSON with the required fields.`;\n};\n\nreturn {\n  systemPrompt: buildPrompt(),\n  userPrompt: buildUserPrompt(),\n  temperature: 0.1,\n  maxTokens: 500,\n  speechResult: speechResult,\n  callSid: callSid,\n  conversationContext: {\n    ...conversationContext,\n    retryCount: retryCount,\n    lastSpeechResult: speechResult,\n    timestamp: new Date().toISOString()\n  },\n  config: config,\n  // Preserve existing data\n  ...$json\n};"
+      },
+      "id": "enhanced-speech-processing-v2",
+      "name": "Enhanced Speech Processing V2",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -2260,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "apiKey",
+        "model": "gpt-4",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "={{ $json.systemPrompt }}"
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.userPrompt }}"
+            }
+          ]
+        },
+        "temperature": "={{ $json.temperature }}",
+        "maxTokens": "={{ $json.maxTokens }}"
+      },
+      "id": "openai-extraction-v2",
+      "name": "OpenAI Extraction V2",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        -2040,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Enhanced Response Processing with Confidence Scoring\nconst extractedData = $json.message.content;\nconst speechResult = $json.speechResult;\nconst callSid = $json.callSid;\nconst conversationContext = $json.conversationContext;\nconst config = $json.config;\n\n// Parse OpenAI response with error handling\nlet parsedData;\ntry {\n  parsedData = JSON.parse(extractedData);\n} catch (error) {\n  return {\n    error: 'PARSE_ERROR',\n    message: 'Failed to parse OpenAI response',\n    originalResponse: extractedData,\n    callSid: callSid,\n    conversationContext: {\n      ...conversationContext,\n      lastError: 'PARSE_ERROR',\n      retryCount: (conversationContext.retryCount || 0) + 1\n    },\n    shouldRetry: true\n  };\n}\n\n// Calculate confidence score\nconst calculateConfidence = (data) => {\n  let score = 0;\n  let totalFields = config.requiredFields.length;\n  \n  config.requiredFields.forEach(field => {\n    if (data[field] && data[field].trim() !== '') {\n      score += 1;\n    }\n  });\n  \n  // Bonus for complete data\n  if (data.project_address && data.budget && data.payment_terms) {\n    score += 0.5;\n  }\n  \n  return Math.min(score / totalFields, 1.0);\n};\n\nconst confidenceScore = calculateConfidence(parsedData);\n\n// Check if confidence is sufficient\nif (confidenceScore < config.confidenceThreshold) {\n  return {\n    error: 'LOW_CONFIDENCE',\n    message: `Confidence score ${confidenceScore} below threshold ${config.confidenceThreshold}`,\n    confidenceScore: confidenceScore,\n    extractedData: parsedData,\n    callSid: callSid,\n    conversationContext: {\n      ...conversationContext,\n      lastError: 'LOW_CONFIDENCE',\n      retryCount: (conversationContext.retryCount || 0) + 1,\n      confidenceScores: {\n        ...conversationContext.confidenceScores,\n        [new Date().toISOString()]: confidenceScore\n      }\n    },\n    shouldRetry: true\n  };\n}\n\n// Check for missing fields\nconst missingFields = config.requiredFields.filter(field => !parsedData[field] || parsedData[field].trim() === '');\n\n// Smart follow-up questions with context\nconst followUpQuestions = {\n  business_name: \"What's the name of your business?\",\n  project_type: \"What type of project is this? (e.g., kitchen remodel, bathroom renovation, deck build)\",\n  project_address: \"What's the project address?\",\n  budget: \"What's the total budget for this project?\",\n  payment_terms: \"How would you like to structure the payments? (e.g., 50% upfront, 50% on completion)\",\n  start_date: \"When would you like to start this project?\",\n  preferred_contact_method: \"What's the best way to get the contract to you — text or email?\"\n};\n\n// Determine if we need follow-up\nif (missingFields.length > 0) {\n  const nextField = missingFields[0];\n  const updatedContext = {\n    ...conversationContext,\n    previousQuestions: [...(conversationContext.previousQuestions || []), followUpQuestions[nextField]],\n    extractedData: { ...conversationContext.extractedData, ...parsedData },\n    confidenceScores: {\n      ...conversationContext.confidenceScores,\n      [new Date().toISOString()]: confidenceScore\n    },\n    retryCount: 0 // Reset retry count on successful extraction\n  };\n\n  return {\n    hasFollowUp: true,\n    question: followUpQuestions[nextField],\n    missingField: nextField,\n    remainingFields: missingFields.slice(1),\n    extractedData: parsedData,\n    conversationState: 'follow_up',\n    callSid: callSid,\n    confidenceScore: confidenceScore,\n    conversationContext: updatedContext,\n    // Map to existing workflow fields\n    projectType: parsedData.project_type,\n    address: parsedData.project_address,\n    startDate: parsedData.start_date,\n    budget: parsedData.budget,\n    clientName: parsedData.business_name,\n    projectAddress: parsedData.project_address,\n    endDate: parsedData.end_date,\n    scopeOfWork: parsedData.scope,\n    paymentTerms: parsedData.payment_terms,\n    materialsProvidedBy: parsedData.materials_by,\n    // Preserve existing data\n    ...$json\n  };\n}\n\n// All required fields present\nconst finalContext = {\n  ...conversationContext,\n  extractedData: { ...conversationContext.extractedData, ...parsedData },\n  confidenceScores: {\n    ...conversationContext.confidenceScores,\n    [new Date().toISOString()]: confidenceScore\n  },\n  retryCount: 0,\n  isComplete: true\n};\n\nreturn {\n  hasFollowUp: false,\n  isComplete: true,\n  extractedData: parsedData,\n  conversationState: 'complete',\n  callSid: callSid,\n  confidenceScore: confidenceScore,\n  conversationContext: finalContext,\n  // Map to existing workflow fields\n  projectType: parsedData.project_type,\n  address: parsedData.project_address,\n  startDate: parsedData.start_date,\n  budget: parsedData.budget,\n  clientName: parsedData.business_name,\n  projectAddress: parsedData.project_address,\n  endDate: parsedData.end_date,\n  scopeOfWork: parsedData.scope,\n  paymentTerms: parsedData.payment_terms,\n  materialsProvidedBy: parsedData.materials_by,\n  // Preserve existing data\n  ...$json\n};"
+      },
+      "id": "enhanced-response-processing-v2",
+      "name": "Enhanced Response Processing V2",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1820,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Enhanced Speech Processing V2": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Extraction V2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Extraction V2": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Response Processing V2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+} 

@@ -1,0 +1,79 @@
+{
+  "name": "Enhanced Voice Intake - Part 1: Webhook & Validation",
+  "nodes": [
+    {
+      "name": "Webhook Entry",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "webhook-entry"
+    },
+    {
+      "name": "Validate Webhook",
+      "type": "n8n-nodes-base.function",
+      "parameters": {
+        "functionCode": "// Enhanced Webhook Validation\nconst webhookData = $json;\nconst callSid = webhookData.CallSid;\nconst from = webhookData.From;\nconst to = webhookData.To;\nconst speechResult = webhookData.SpeechResult;\nconst confidence = webhookData.Confidence;\n\n// Validation checks\nconst validation = {\n  isValid: true,\n  errors: [],\n  warnings: [],\n  callSid: callSid,\n  timestamp: new Date().toISOString()\n};\n\n// Required fields\nif (!callSid) {\n  validation.isValid = false;\n  validation.errors.push('Missing CallSid');\n}\n\nif (!from) {\n  validation.isValid = false;\n  validation.errors.push('Missing From number');\n}\n\nif (!to) {\n  validation.isValid = false;\n  validation.errors.push('Missing To number');\n}\n\n// Speech validation\nif (speechResult && confidence) {\n  if (confidence < 0.3) {\n    validation.warnings.push('Low speech confidence detected');\n  }\n  \n  if (speechResult.length < 2) {\n    validation.warnings.push('Very short speech input');\n  }\n}\n\n// Phone number format validation\nif (from && !/^\\+?[1-9]\\d{1,14}$/.test(from.replace(/[^0-9+]/g, ''))) {\n  validation.warnings.push('Invalid From phone number format');\n}\n\nif (to && !/^\\+?[1-9]\\d{1,14}$/.test(to.replace(/[^0-9+]/g, ''))) {\n  validation.warnings.push('Invalid To phone number format');\n}\n\n// Return validation result with original data\nreturn {\n  ...webhookData,\n  validation,\n  processedAt: new Date().toISOString()\n};"
+      },
+      "typeVersion": 1,
+      "position": [460, 300],
+      "id": "validate-webhook"
+    },
+    {
+      "name": "Check Caller Directory",
+      "type": "n8n-nodes-base.function",
+      "parameters": {
+        "functionCode": "// Enhanced Caller Directory Check\nconst inputData = $json;\nconst from = inputData.From;\nconst callSid = inputData.CallSid;\n\n// Simulate caller directory lookup\n// In production, this would query Google Sheets or database\nconst callerDirectory = {\n  lookupResults: [],\n  isReturningCaller: false,\n  callerInfo: null,\n  lastCallDate: null,\n  callHistory: []\n};\n\n// Check if caller exists in directory\nif (from) {\n  // Normalize phone number for lookup\n  const normalizedPhone = from.replace(/[^0-9+]/g, '');\n  \n  // Simulate lookup (replace with actual Google Sheets query)\n  // const lookupResult = await googleSheetsLookup(normalizedPhone);\n  \n  // For now, use a simple check based on phone number pattern\n  const isReturning = normalizedPhone.length >= 10;\n  \n  callerDirectory.isReturningCaller = isReturning;\n  \n  if (isReturning) {\n    callerDirectory.callerInfo = {\n      phone: from,\n      businessName: 'Previous Customer', // Would come from actual lookup\n      preferredContact: 'text', // Would come from actual lookup\n      lastCallDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago\n      callCount: 1 // Would come from actual lookup\n    };\n  }\n}\n\nreturn {\n  ...inputData,\n  callerDirectory,\n  conversationState: callerDirectory.isReturningCaller ? 'returning_caller' : 'new_caller',\n  timestamp: new Date().toISOString()\n};"
+      },
+      "typeVersion": 1,
+      "position": [680, 300],
+      "id": "check-caller-directory"
+    }
+  ],
+  "connections": {
+    "Webhook Entry": {
+      "main": [
+        [
+          {
+            "node": "Validate Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check Caller Directory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "enhanced-orchestrator-part1",
+  "tags": [
+    {
+      "createdAt": "2025-01-27T10:00:00.000Z",
+      "updatedAt": "2025-01-27T10:00:00.000Z",
+      "id": "voice-intake",
+      "name": "Voice Intake"
+    }
+  ]
+} 

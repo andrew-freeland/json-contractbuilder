@@ -1,0 +1,94 @@
+{
+  "name": "Enhanced Voice Intake - Part 2: Speech Processing",
+  "nodes": [
+    {
+      "name": "Process Speech Input",
+      "type": "n8n-nodes-base.function",
+      "parameters": {
+        "functionCode": "// Enhanced Speech Processing\nconst inputData = $json;\nconst speechResult = inputData.SpeechResult;\nconst confidence = inputData.Confidence;\nconst conversationState = inputData.conversationState;\nconst callerDirectory = inputData.callerDirectory;\n\n// Speech processing result\nconst speechProcessing = {\n  originalText: speechResult || '',\n  confidence: confidence || 0,\n  processedText: '',\n  extractedEntities: {},\n  intent: null,\n  requiresFollowUp: false,\n  followUpQuestion: null,\n  missingFields: [],\n  timestamp: new Date().toISOString()\n};\n\n// Process speech if available\nif (speechResult && speechResult.length > 0) {\n  const text = speechResult.toLowerCase().trim();\n  speechProcessing.processedText = text;\n  \n  // Extract business name\n  if (text.includes('business') || text.includes('company') || text.includes('name')) {\n    const businessMatch = text.match(/(?:business|company|name)\\s+(?:is\\s+)?([a-zA-Z\\s]+)/i);\n    if (businessMatch) {\n      speechProcessing.extractedEntities.businessName = businessMatch[1].trim();\n    }\n  }\n  \n  // Extract project type\n  const projectTypes = ['renovation', 'remodel', 'construction', 'repair', 'maintenance', 'addition'];\n  for (const type of projectTypes) {\n    if (text.includes(type)) {\n      speechProcessing.extractedEntities.projectType = type;\n      break;\n    }\n  }\n  \n  // Extract budget\n  const budgetMatch = text.match(/\\$?([0-9,]+(?:\\.[0-9]{2})?)/);\n  if (budgetMatch) {\n    speechProcessing.extractedEntities.budget = '$' + budgetMatch[1];\n  }\n  \n  // Extract address\n  if (text.includes('address') || text.includes('location') || text.includes('at')) {\n    const addressMatch = text.match(/(?:address|location|at)\\s+([^\\.,]+)/i);\n    if (addressMatch) {\n      speechProcessing.extractedEntities.projectAddress = addressMatch[1].trim();\n    }\n  }\n  \n  // Extract contact preference\n  if (text.includes('text') || text.includes('sms')) {\n    speechProcessing.extractedEntities.preferredContact = 'text';\n  } else if (text.includes('email')) {\n    speechProcessing.extractedEntities.preferredContact = 'email';\n  }\n  \n  // Determine intent\n  if (text.includes('contract') || text.includes('agreement')) {\n    speechProcessing.intent = 'generate_contract';\n  } else if (text.includes('quote') || text.includes('estimate')) {\n    speechProcessing.intent = 'get_quote';\n  } else if (text.includes('start') || text.includes('begin')) {\n    speechProcessing.intent = 'start_project';\n  } else {\n    speechProcessing.intent = 'general_inquiry';\n  }\n}\n\n// Determine if follow-up is needed\nconst requiredFields = ['businessName', 'projectType', 'budget', 'projectAddress'];\nconst missingFields = requiredFields.filter(field => !speechProcessing.extractedEntities[field]);\n\nif (missingFields.length > 0) {\n  speechProcessing.requiresFollowUp = true;\n  speechProcessing.missingFields = missingFields;\n  \n  // Generate follow-up question\n  const followUpQuestions = {\n    businessName: \"What's the name of your business?\",\n    projectType: \"What type of project is this?\",\n    budget: \"What's your budget for this project?\",\n    projectAddress: \"What's the project address?\"\n  };\n  \n  speechProcessing.followUpQuestion = followUpQuestions[missingFields[0]];\n}\n\nreturn {\n  ...inputData,\n  speechProcessing,\n  extractedData: speechProcessing.extractedEntities,\n  hasFollowUp: speechProcessing.requiresFollowUp,\n  followUpQuestion: speechProcessing.followUpQuestion,\n  missingField: missingFields[0] || null\n};"
+      },
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "process-speech"
+    },
+    {
+      "name": "OpenAI Data Extraction",
+      "type": "n8n-nodes-base.openAi",
+      "parameters": {
+        "authentication": "openAiApi",
+        "resource": "chat",
+        "model": "gpt-3.5-turbo",
+        "messages": {
+          "messageValues": [
+            {
+              "role": "system",
+              "content": "You are an AI assistant that extracts structured data from construction project conversations. Extract the following fields in JSON format:\n\n- business_name: Name of the business/client\n- project_type: Type of project (renovation, construction, repair, etc.)\n- project_address: Project location/address\n- budget: Budget amount (include $ symbol)\n- payment_terms: Payment structure\n- start_date: Project start date\n- end_date: Project end date\n- materials_by: Who provides materials\n- scope_of_work: Detailed project scope\n- preferred_contact_method: Preferred contact method (text/email)\n\nReturn only valid JSON with these fields. Use null for missing values."
+            },
+            {
+              "role": "user",
+              "content": "{{ $json.speechProcessing.originalText || $json.SpeechResult || 'No speech input provided' }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.1,
+          "maxTokens": 500
+        }
+      },
+      "typeVersion": 1,
+      "position": [460, 300],
+      "id": "openai-extraction"
+    },
+    {
+      "name": "Parse OpenAI Response",
+      "type": "n8n-nodes-base.function",
+      "parameters": {
+        "functionCode": "// Parse OpenAI Response and Merge with Speech Processing\nconst openAIResponse = $json;\nconst inputData = $('Process Speech Input').first().json;\n\n// Extract JSON from OpenAI response\nlet extractedData = {};\n\ntry {\n  // Try to parse the OpenAI response\n  const content = openAIResponse.choices?.[0]?.message?.content || '';\n  \n  // Look for JSON in the response\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    extractedData = JSON.parse(jsonMatch[0]);\n  } else {\n    // Fallback to speech processing results\n    extractedData = inputData.extractedData || {};\n  }\n} catch (error) {\n  console.error('Error parsing OpenAI response:', error);\n  // Fallback to speech processing results\n  extractedData = inputData.extractedData || {};\n}\n\n// Merge with existing data\nconst mergedData = {\n  ...inputData,\n  extractedData: {\n    ...inputData.extractedData,\n    ...extractedData\n  },\n  openAIResponse: openAIResponse,\n  processingMethod: 'openai_enhanced',\n  timestamp: new Date().toISOString()\n};\n\n// Update follow-up logic with merged data\nconst requiredFields = ['business_name', 'project_type', 'budget', 'project_address'];\nconst missingFields = requiredFields.filter(field => !mergedData.extractedData[field]);\n\nif (missingFields.length > 0) {\n  mergedData.hasFollowUp = true;\n  mergedData.missingField = missingFields[0];\n  \n  const followUpQuestions = {\n    business_name: \"What's the name of your business?\",\n    project_type: \"What type of project is this?\",\n    budget: \"What's your budget for this project?\",\n    project_address: \"What's the project address?\"\n  };\n  \n  mergedData.followUpQuestion = followUpQuestions[missingFields[0]];\n} else {\n  mergedData.hasFollowUp = false;\n  mergedData.followUpQuestion = null;\n  mergedData.missingField = null;\n}\n\nreturn mergedData;"
+      },
+      "typeVersion": 1,
+      "position": [680, 300],
+      "id": "parse-openai-response"
+    }
+  ],
+  "connections": {
+    "Process Speech Input": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Data Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Data Extraction": {
+      "main": [
+        [
+          {
+            "node": "Parse OpenAI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "enhanced-orchestrator-part2",
+  "tags": [
+    {
+      "createdAt": "2025-01-27T10:00:00.000Z",
+      "updatedAt": "2025-01-27T10:00:00.000Z",
+      "id": "voice-intake",
+      "name": "Voice Intake"
+    }
+  ]
+} 

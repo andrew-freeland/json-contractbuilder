@@ -1,0 +1,876 @@
+{
+  "name": "Main Workflow - Voice Intake Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "functionCode": "// Validate X-Twilio-Signature here\nreturn items;"
+      },
+      "id": "3ef58dc7-9052-4fd7-a621-0eeebe17904a",
+      "name": "Validate Twilio Signature1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -2480,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "sheetId": "122w46mkzpgbK-7z4GUnwZ87q18eUXQhK9IDoElv4_88",
+        "range": "CallLogs!A:Z",
+        "options": {}
+      },
+      "id": "d1284103-4c0f-45bd-83f7-60d20fcbe04d",
+      "name": "Find Caller in Sheet1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [
+        -1820,
+        -80
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "BaM9ecgM7tTRQieT",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json[\"name\"]}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "8589340d-a2e5-451a-9b5a-996bf948c2ef",
+      "name": "IF: Repeat Caller?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -1380,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "a52IrheKXm7My6vC",
+        "options": {}
+      },
+      "id": "436ce7d5-ab17-46d1-a840-330ba76b63ad",
+      "name": "Execute: Parse Contract1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -1160,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "Send Notifications",
+        "options": {}
+      },
+      "id": "0e1fe851-89e4-42ab-b37f-ee61dc592ced",
+      "name": "Execute: Send Notification (Repeat)1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        160,
+        -180
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": "Log to Sheets",
+        "options": {}
+      },
+      "id": "0a256d1e-7a3c-462d-81ca-1b7cd5a37882",
+      "name": "Execute: Log Call (Repeat)1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        380,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "Send Notifications",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "2c3a2959-8318-4634-b132-7a4ec4a980b0",
+      "name": "Execute: Send Notification (New)1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        380,
+        20
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": "fuJ6y9UpCM3qw2O7",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "f3f79a04-1331-4e32-bd3e-03fbdc34e0c8",
+      "name": "Execute: Log Call (New)1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        600,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Use Twilio Lookup API or external service\n// to enrich caller info (e.g. carrier, type)\nreturn items;"
+      },
+      "id": "ba70462d-9fda-447c-b010-060f15af4e77",
+      "name": "Lookup Caller Info",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1600,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const item = items[0];\n\nitem.BASE_URL = $vars.BASE_URL;\nitem.SHEET_ID = $vars.SHEET_ID;\nitem.TWILIO_PHONE_NUMBER = $vars.TWILIO_PHONE_NUMBER;\nitem.BBP_PHONE_NUMBER = $vars.BBP_PHONE_NUMBER;\nitem.ENABLE_SMS = $vars.ENABLE_SMS;\nitem.ENABLE_SHEETS_LOGGING = $vars.ENABLE_SHEETS_LOGGING;\nitem.IS_SIMULATION_MODE = $vars.IS_SIMULATION_MODE;\nitem.ADMIN_EMAIL = $vars.ADMIN_EMAIL;\nitem.ADMIN_PHONE = $vars.ADMIN_PHONE;\n\nreturn [item];\n"
+      },
+      "id": "09b81b4c-347a-42ff-b46d-178b158ef237",
+      "name": "Load ENV Vars (Post-Webhook)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.map(item => {\n  const { projectType, address, startDate, budget } = item.json;\n  const parts = [];\n\n  if (projectType) parts.push(projectType.charAt(0).toUpperCase() + projectType.slice(1));\n  if (address) parts.push(`at ${address}`);\n  if (startDate) parts.push(`starting ${startDate}`);\n  if (budget) parts.push(`budget ${budget}`);\n\n  item.json.projectSummary = parts.join(', ') + '.';\n  return item;\n});\n"
+      },
+      "name": "Generate Project Summary",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -180
+      ],
+      "id": "ff372a8d-4299-4d29-83a4-f3ee4738938b"
+    },
+    {
+      "parameters": {
+        "height": 150,
+        "width": 300
+      },
+      "name": "🟠 OpenAI fallback – disabled for now (project summary rewrite)",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1360,
+        -440
+      ],
+      "id": "aee42269-f649-4021-b806-fd5bd6d4fcc5"
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.map(item => {\n  const { projectType, address, startDate, budget } = item.json;\n  const parts = [];\n\n  if (projectType) parts.push(projectType.charAt(0).toUpperCase() + projectType.slice(1));\n  if (address) parts.push(`at ${address}`);\n  if (startDate) parts.push(`starting ${startDate}`);\n  if (budget) parts.push(`budget ${budget}`);\n\n  item.json.projectSummary = parts.join(', ') + '.';\n  return item;\n});\n"
+      },
+      "name": "Generate Project Summary1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -500,
+        20
+      ],
+      "id": "f8c26463-94f4-471a-b670-8520a12e4d10"
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.map(item => {\n  const required = item.json.requiredFields || [\n    'projectType',\n    'address',\n    'budget',\n    'startDate'\n  ];\n\n  const missing = required.filter(field => {\n    const val = item.json[field];\n    return val === undefined || val === null || val === '';\n  });\n\n  if (missing.length > 0) {\n    const formatted = missing\n      .map(f => `• ${f.replace(/([A-Z])/g, ' $1')}`)\n      .join('\\n');\n    item.json.missingFieldWarning = `⚠️ We're still missing the following details:\\n\\n${formatted}`;\n  } else {\n    item.json.missingFieldWarning = '';\n  }\n\n  return item;\n});\n"
+      },
+      "name": "Generate Missing Field Warning",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -500,
+        -180
+      ],
+      "id": "4808b71c-db0d-4398-a1df-c4afadef8e39"
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.map(item => {\n  const required = item.json.requiredFields || [\n    'projectType',\n    'address',\n    'budget',\n    'startDate'\n  ];\n\n  const missing = required.filter(field => {\n    const val = item.json[field];\n    return val === undefined || val === null || val === '';\n  });\n\n  if (missing.length > 0) {\n    const formatted = missing\n      .map(f => `• ${f.replace(/([A-Z])/g, ' $1')}`)\n      .join('\\n');\n    item.json.missingFieldWarning = `⚠️ We're still missing the following details:\\n\\n${formatted}`;\n  } else {\n    item.json.missingFieldWarning = '';\n  }\n\n  return item;\n});\n"
+      },
+      "name": "Generate Missing Field Warning1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -280,
+        20
+      ],
+      "id": "02e3681c-81f5-411c-a162-d731cd01341b"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "rewrittenMessage",
+              "value": "={{ $json.choices[0].message.content }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set Rewritten Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -180
+      ],
+      "id": "1f60ed0b-ed76-4c5c-90d1-3eab45eb7162"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "rewrittenMessage",
+              "value": "={{ $json.choices[0].message.content }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set Rewritten Message2",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        160,
+        20
+      ],
+      "id": "cb9f6ab4-2123-4616-a006-0c996496dec1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$vars.BASE_URL}}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-3.5-turbo"
+            },
+            {
+              "name": "temperature",
+              "value": "0.7"
+            },
+            {
+              "name": "messages",
+              "value": "={\n  \"model\": \"gpt-3.5-turbo\",\n  \"temperature\": 0.7,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You rewrite text in a friendlier, more efficient tone.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Please reschedule our meeting to Tuesday or Wednesday and send me the Zoom link.\"\n    }\n  ]\n}\n\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -280,
+        -180
+      ],
+      "id": "77e5469e-3cb4-418d-abc9-f619c0d3a30c",
+      "name": "Response Rewrite - HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qakFx7MXcOFFxUoX",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$vars.BASE_URL}}/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-3.5-turbo\",\n  \"temperature\": 0.7,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You rewrite text in a friendlier, more efficient tone.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Please reschedule our meeting to Tuesday or Wednesday and send me the Zoom link.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -60,
+        20
+      ],
+      "id": "4207d81b-eadc-41d7-8ed6-55b1c43579cf",
+      "name": "Response Rewrite - HTTP Request1",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qakFx7MXcOFFxUoX",
+          "name": "Header Auth account"
+        },
+        "openAiApi": {
+          "id": "aEJlE2MkXmfKpkAW",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": "a52IrheKXm7My6vC",
+        "options": {}
+      },
+      "id": "79d8be7e-0625-46d0-b74d-e64251097334",
+      "name": "Execute: Parse Contract",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        -1160,
+        20
+      ],
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = items[0].json;\n\nconst {\n  projectType,\n  budget,\n  clientName,\n  projectAddress,\n  startDate,\n  endDate,\n  scopeOfWork,\n  paymentTerms,\n  materialsProvidedBy\n} = input;\n\nreturn [\n  {\n    json: {\n      compliancePrompt: `You are an expert in California construction law.\n\nGiven the following contract details, check whether this contract complies with CSLB §7159 (Home Improvement Contract Requirements). List any **missing or non-compliant elements** clearly and concisely. Only respond with what's missing or non-compliant.\n\nDetails:\n- Project Type: ${projectType || \"Not provided\"}\n- Contract Price: ${budget || \"Not provided\"}\n- Client Name: ${clientName || \"Not provided\"}\n- Property Address: ${projectAddress || \"Not provided\"}\n- Start Date: ${startDate || \"Not provided\"}\n- End Date: ${endDate || \"Not provided\"}\n- Scope of Work: ${scopeOfWork || \"Not provided\"}\n- Payment Terms: ${paymentTerms || \"Not provided\"}\n- Materials Provided By: ${materialsProvidedBy || \"Not provided\"}\n\nRespond with:\n\"Missing for a Home Improvement Contract:\"\n- [bullet list of missing items or formatting issues]`\n    }\n  }\n];\n"
+      },
+      "name": "Build Compliance Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        20
+      ],
+      "id": "20c88328-0b7c-47d3-940f-33275dd17d5c"
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = items[0].json;\n\nconst {\n  projectType,\n  budget,\n  clientName,\n  projectAddress,\n  startDate,\n  endDate,\n  scopeOfWork,\n  paymentTerms,\n  materialsProvidedBy\n} = input;\n\nreturn [\n  {\n    json: {\n      compliancePrompt: `You are an expert in California construction law.\n\nGiven the following contract details, check whether this contract complies with CSLB §7159 (Home Improvement Contract Requirements). List any **missing or non-compliant elements** clearly and concisely. Only respond with what's missing or non-compliant.\n\nDetails:\n- Project Type: ${projectType || \"Not provided\"}\n- Contract Price: ${budget || \"Not provided\"}\n- Client Name: ${clientName || \"Not provided\"}\n- Property Address: ${projectAddress || \"Not provided\"}\n- Start Date: ${startDate || \"Not provided\"}\n- End Date: ${endDate || \"Not provided\"}\n- Scope of Work: ${scopeOfWork || \"Not provided\"}\n- Payment Terms: ${paymentTerms || \"Not provided\"}\n- Materials Provided By: ${materialsProvidedBy || \"Not provided\"}\n\nRespond with:\n\"Missing for a Home Improvement Contract:\"\n- [bullet list of missing items or formatting issues]`\n    }\n  }\n];\n"
+      },
+      "name": "Build Compliance Prompt1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -940,
+        -180
+      ],
+      "id": "e8b4e977-dd1d-4971-9354-222deff4fb60"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const caller = item.json.caller || 'Unknown caller';\nconst project = item.json.projectType || 'a project';\nconst property = item.json.propertyType || 'a property';\nconst category = item.json.workCategory || 'general construction';\nconst address = item.json.address || 'an unspecified address';\nconst budget = item.json.budget ? `$${item.json.budget}` : 'an unspecified amount';\nconst start = item.json.startDate || 'an unspecified start date';\n\nreturn {\n  json: {\n    ...item.json,\n    summary: `Caller ${caller} wants to ${project} on a ${property} (${category}) at ${address} for ${budget}, starting in ${start}.`\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -940,
+        20
+      ],
+      "id": "b3d87416-c919-4f80-a07a-216499fec34a",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"timestamp\": \"Monday, 7:30 PM, 07-18-2025\",\n  \"callerID\": \"+15551234567\",\n  \"callerName\": \"John Doe\",\n  \"phone\": \"+15551234567\",\n  \"language\": \"English\",\n  \"is_Repeat\": \"No\",\n  \"intent\": \"Compliance Inquiry\",\n  \"paymentTerms\": \"Invoice Number | Due Date | Amount Due | Payment Method | Status\\nINV-1001 | 2025-08-01 | $1,200.00 | Credit Card | Pending\",\n  \"projectSummary\": \"Called to confirm contract compliance timeline.\",\n  \"smsSent\": \"No\",\n  \"fullTranscript\": \"Agent: Hello...\\nCustomer: Hi...\\nAgent: Great, ...\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2900,
+        -80
+      ],
+      "id": "f847a6c1-b4b3-4e46-94ac-7a134b30b37d",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "com.twilio.voice.insights.call-summary.complete"
+        ]
+      },
+      "type": "n8n-nodes-base.twilioTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3360,
+        -80
+      ],
+      "id": "b2be3cc7-1b7f-4004-8674-a681d1be58aa",
+      "name": "Twilio Trigger",
+      "webhookId": "1a0ab43e-69c0-48a0-bceb-592bf92c9823",
+      "credentials": {
+        "twilioApi": {
+          "id": "ygeRXvfkZaL3xp5P",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "6bbde5c4-1d7c-4c48-93b3-d52871e967d8",
+        "responseMode": "responseNode",
+        "options": {
+          "ignoreBots": true,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/xml"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -3340,
+        -320
+      ],
+      "id": "a4fb2463-f2b2-41f8-9ac1-d1996181838d",
+      "name": "Webhook",
+      "webhookId": "6bbde5c4-1d7c-4c48-93b3-d52871e967d8"
+    },
+    {
+      "parameters": {
+        "path": "02005db6-62a8-4978-8cd5-d87a8ee031b2",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -2900,
+        -320
+      ],
+      "id": "fa6b7477-14a8-4171-94ff-63ec63bc580e",
+      "name": "Webhook1",
+      "webhookId": "02005db6-62a8-4978-8cd5-d87a8ee031b2"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "<Response>\n  <Gather input=\"speech dtmf\" timeout=\"5\" numDigits=\"1\"\n      language=\"en-US\" action=\"/webhook/handle-intent\" method=\"POST\">\n    <Say>Thank you for calling the Contract Generator. Tell us about your new project and we will generate your CSLB compliant contract.</Say>\n  </Gather>\n  <Say>We didn’t receive any input. Goodbye.</Say>\n</Response>",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/xml"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -3140,
+        -80
+      ],
+      "id": "fa929d26-ba96-4093-afee-6946ffa5fc57",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "KLXj19HjFkOnYUuh",
+          "mode": "list",
+          "cachedResultName": "Caller Directory subflow"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -2040,
+        -80
+      ],
+      "id": "dfe80334-1881-4373-9007-aa1d9bfc597d",
+      "name": "Execute callerDirectory subflow"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "qM1R5NVMVDD9NghD",
+          "mode": "list",
+          "cachedResultName": "Speech Processing subflow"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -2260,
+        -80
+      ],
+      "id": "0483a420-4003-4432-b13e-c84d30e80428",
+      "name": "Execute speechProcessing subflow"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Validate Twilio Signature1": {
+      "main": [
+        [
+          {
+            "node": "Execute speechProcessing subflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Caller in Sheet1": {
+      "main": [
+        [
+          {
+            "node": "Lookup Caller Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Repeat Caller?1": {
+      "main": [
+        [
+          {
+            "node": "Execute: Parse Contract1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: Parse Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Parse Contract1": {
+      "main": [
+        [
+          {
+            "node": "Build Compliance Prompt1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Send Notification (Repeat)1": {
+      "main": [
+        [
+          {
+            "node": "Execute: Log Call (Repeat)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Send Notification (New)1": {
+      "main": [
+        [
+          {
+            "node": "Execute: Log Call (New)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Caller Info": {
+      "main": [
+        [
+          {
+            "node": "IF: Repeat Caller?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load ENV Vars (Post-Webhook)": {
+      "main": [
+        [
+          {
+            "node": "Validate Twilio Signature1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Project Summary": {
+      "main": [
+        [
+          {
+            "node": "Generate Missing Field Warning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Project Summary1": {
+      "main": [
+        [
+          {
+            "node": "Generate Missing Field Warning1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Missing Field Warning": {
+      "main": [
+        [
+          {
+            "node": "Response Rewrite - HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Missing Field Warning1": {
+      "main": [
+        [
+          {
+            "node": "Response Rewrite - HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Rewritten Message": {
+      "main": [
+        [
+          {
+            "node": "Execute: Send Notification (Repeat)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Rewritten Message2": {
+      "main": [
+        [
+          {
+            "node": "Execute: Send Notification (New)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Rewrite - HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Set Rewritten Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Rewrite - HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Set Rewritten Message2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Parse Contract": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Compliance Prompt": {
+      "main": [
+        [
+          {
+            "node": "Generate Project Summary1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Compliance Prompt1": {
+      "main": [
+        [
+          {
+            "node": "Generate Project Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Build Compliance Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Load ENV Vars (Post-Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio Trigger": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute callerDirectory subflow": {
+      "main": [
+        [
+          {
+            "node": "Find Caller in Sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute speechProcessing subflow": {
+      "main": [
+        [
+          {
+            "node": "Execute callerDirectory subflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8425d0b1-449b-4a7f-8bb6-46881ffba73f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9ddbf4ee29f667e3151a12ec1f06c01bbc2a151068327a86785661cb1af152a5"
+  },
+  "id": "g6MLAkqOAOSqAipC",
+  "tags": [
+    {
+      "createdAt": "2025-07-17T04:38:25.877Z",
+      "updatedAt": "2025-07-17T04:38:25.877Z",
+      "id": "LzpMSxoPjZXnbamu",
+      "name": "/voice-intake"
+    }
+  ]
+}

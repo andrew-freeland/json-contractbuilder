@@ -1,0 +1,121 @@
+{
+  "name": "Enhanced Voice Intake Orchestrator",
+  "nodes": [
+    {
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "webhook-entry"
+    },
+    {
+      "name": "Validate Webhook",
+      "type": "n8n-nodes-base.function",
+      "parameters": {
+        "functionCode": "// Enhanced Webhook Validation\nconst webhookData = $json;\nconst callSid = webhookData.CallSid;\nconst from = webhookData.From;\nconst to = webhookData.To;\nconst speechResult = webhookData.SpeechResult;\nconst confidence = webhookData.Confidence;\n\n// Validation checks\nconst validation = {\n  isValid: true,\n  errors: [],\n  warnings: [],\n  callSid: callSid,\n  timestamp: new Date().toISOString()\n};\n\n// Required fields\nif (!callSid) {\n  validation.isValid = false;\n  validation.errors.push('Missing CallSid');\n}\n\nif (!from) {\n  validation.isValid = false;\n  validation.errors.push('Missing From number');\n}\n\nif (!to) {\n  validation.isValid = false;\n  validation.errors.push('Missing To number');\n}\n\n// Speech validation\nif (speechResult && confidence) {\n  if (confidence < 0.3) {\n    validation.warnings.push('Low speech confidence detected');\n  }\n  \n  if (speechResult.length < 2) {\n    validation.warnings.push('Very short speech input');\n  }\n}\n\n// Phone number format validation\nif (from && !/^\\+?[1-9]\\d{1,14}$/.test(from.replace(/[^0-9+]/g, ''))) {\n  validation.warnings.push('Invalid From phone number format');\n}\n\nif (to && !/^\\+?[1-9]\\d{1,14}$/.test(to.replace(/[^0-9+]/g, ''))) {\n  validation.warnings.push('Invalid To phone number format');\n}\n\n// Return validation result with original data\nreturn {\n  ...webhookData,\n  validation,\n  processedAt: new Date().toISOString()\n};"
+      },
+      "typeVersion": 1,
+      "position": [460, 300],
+      "id": "validate-webhook"
+    },
+    {
+      "name": "Check Caller Directory",
+      "type": "n8n-nodes-base.function",
+      "parameters": {
+        "functionCode": "// Enhanced Caller Directory Check\nconst inputData = $json;\nconst from = inputData.From;\nconst callSid = inputData.CallSid;\n\n// Simulate caller directory lookup\n// In production, this would query Google Sheets or database\nconst callerDirectory = {\n  // Example data structure\n  lookupResults: [],\n  isReturningCaller: false,\n  callerInfo: null,\n  lastCallDate: null,\n  callHistory: []\n};\n\n// Check if caller exists in directory\nif (from) {\n  // Normalize phone number for lookup\n  const normalizedPhone = from.replace(/[^0-9+]/g, '');\n  \n  // Simulate lookup (replace with actual Google Sheets query)\n  // const lookupResult = await googleSheetsLookup(normalizedPhone);\n  \n  // For now, use a simple check based on phone number pattern\n  const isReturning = normalizedPhone.length >= 10;\n  \n  callerDirectory.isReturningCaller = isReturning;\n  \n  if (isReturning) {\n    callerDirectory.callerInfo = {\n      phone: from,\n      businessName: 'Previous Customer', // Would come from actual lookup\n      preferredContact: 'text', // Would come from actual lookup\n      lastCallDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago\n      callCount: 1 // Would come from actual lookup\n    };\n  }\n}\n\nreturn {\n  ...inputData,\n  callerDirectory,\n  conversationState: callerDirectory.isReturningCaller ? 'returning_caller' : 'new_caller',\n  timestamp: new Date().toISOString()\n};"
+      },
+      "typeVersion": 1,
+      "position": [680, 300],
+      "id": "check-caller-directory"
+    },
+    {
+      "name": "Process Speech Input",
+      "type": "n8n-nodes-base.function",
+      "parameters": {
+        "functionCode": "// Enhanced Speech Processing\nconst inputData = $json;\nconst speechResult = inputData.SpeechResult;\nconst confidence = inputData.Confidence;\nconst conversationState = inputData.conversationState;\nconst callerDirectory = inputData.callerDirectory;\n\n// Speech processing result\nconst speechProcessing = {\n  originalText: speechResult || '',\n  confidence: confidence || 0,\n  processedText: '',\n  extractedEntities: {},\n  intent: null,\n  requiresFollowUp: false,\n  followUpQuestion: null,\n  missingFields: [],\n  timestamp: new Date().toISOString()\n};\n\n// Process speech if available\nif (speechResult && speechResult.length > 0) {\n  const text = speechResult.toLowerCase().trim();\n  speechProcessing.processedText = text;\n  \n  // Extract business name\n  if (text.includes('business') || text.includes('company') || text.includes('name')) {\n    const businessMatch = text.match(/(?:business|company|name)\\s+(?:is\\s+)?([a-zA-Z\\s]+)/i);\n    if (businessMatch) {\n      speechProcessing.extractedEntities.businessName = businessMatch[1].trim();\n    }\n  }\n  \n  // Extract project type\n  const projectTypes = ['renovation', 'remodel', 'construction', 'repair', 'maintenance', 'addition'];\n  for (const type of projectTypes) {\n    if (text.includes(type)) {\n      speechProcessing.extractedEntities.projectType = type;\n      break;\n    }\n  }\n  \n  // Extract budget\n  const budgetMatch = text.match(/\\$?([0-9,]+(?:\\.[0-9]{2})?)/);\n  if (budgetMatch) {\n    speechProcessing.extractedEntities.budget = '$' + budgetMatch[1];\n  }\n  \n  // Extract address\n  if (text.includes('address') || text.includes('location') || text.includes('at')) {\n    const addressMatch = text.match(/(?:address|location|at)\\s+([^\\.,]+)/i);\n    if (addressMatch) {\n      speechProcessing.extractedEntities.projectAddress = addressMatch[1].trim();\n    }\n  }\n  \n  // Extract contact preference\n  if (text.includes('text') || text.includes('sms')) {\n    speechProcessing.extractedEntities.preferredContact = 'text';\n  } else if (text.includes('email')) {\n    speechProcessing.extractedEntities.preferredContact = 'email';\n  }\n  \n  // Determine intent\n  if (text.includes('contract') || text.includes('agreement')) {\n    speechProcessing.intent = 'generate_contract';\n  } else if (text.includes('quote') || text.includes('estimate')) {\n    speechProcessing.intent = 'get_quote';\n  } else if (text.includes('start') || text.includes('begin')) {\n    speechProcessing.intent = 'start_project';\n  } else {\n    speechProcessing.intent = 'general_inquiry';\n  }\n}\n\n// Determine if follow-up is needed\nconst requiredFields = ['businessName', 'projectType', 'budget', 'projectAddress'];\nconst missingFields = requiredFields.filter(field => !speechProcessing.extractedEntities[field]);\n\nif (missingFields.length > 0) {\n  speechProcessing.requiresFollowUp = true;\n  speechProcessing.missingFields = missingFields;\n  \n  // Generate follow-up question\n  const followUpQuestions = {\n    businessName: \"What's the name of your business?\",\n    projectType: \"What type of project is this?\",\n    budget: \"What's your budget for this project?\",\n    projectAddress: \"What's the project address?\"\n  };\n  \n  speechProcessing.followUpQuestion = followUpQuestions[missingFields[0]];\n}\n\nreturn {\n  ...inputData,\n  speechProcessing,\n  extractedData: speechProcessing.extractedEntities,\n  hasFollowUp: speechProcessing.requiresFollowUp,\n  followUpQuestion: speechProcessing.followUpQuestion,\n  missingField: missingFields[0] || null\n};"
+      },
+      "typeVersion": 1,
+      "position": [900, 300],
+      "id": "process-speech"
+    },
+    {
+      "name": "Build Scope Summary",
+      "type": "n8n-nodes-base.function",
+      "parameters": {
+        "functionCode": "// Function Node: Build Scope Summary\n// Input: $json.extractedData or $json (project data)\n// Output: Formatted scope summary and project details\n\nconst projectData = $json.extractedData || $json;\nconst callSid = projectData.callSid || $json.CallSid;\n\n// Scope summary builder\nconst buildScopeSummary = (data) => {\n  const parts = [];\n  \n  // Project type\n  if (data.project_type || data.projectType) {\n    const projectType = data.project_type || data.projectType;\n    parts.push(projectType.charAt(0).toUpperCase() + projectType.slice(1));\n  }\n  \n  // Location\n  if (data.project_address || data.projectAddress) {\n    const address = data.project_address || data.projectAddress;\n    parts.push(`at ${address}`);\n  }\n  \n  // Budget\n  if (data.budget) {\n    const budget = data.budget.startsWith('$') ? data.budget : `$${data.budget}`;\n    parts.push(`budget ${budget}`);\n  }\n  \n  // Timeline\n  if (data.start_date || data.startDate) {\n    const startDate = data.start_date || data.startDate;\n    parts.push(`starting ${startDate}`);\n  }\n  \n  // Materials\n  if (data.materials_by || data.materialsProvidedBy) {\n    const materials = data.materials_by || data.materialsProvidedBy;\n    parts.push(`materials by ${materials}`);\n  }\n  \n  return parts.length > 0 ? parts.join(', ') + '.' : 'Project details pending.';\n};\n\n// Generate detailed project summary\nconst generateDetailedSummary = (data) => {\n  const summary = {\n    projectType: data.project_type || data.projectType || 'Not specified',\n    address: data.project_address || data.projectAddress || 'Not provided',\n    scope: data.scope || data.scopeOfWork || 'Not provided',\n    budget: data.budget || 'Not specified',\n    paymentTerms: data.payment_terms || data.paymentTerms || 'Not specified',\n    startDate: data.start_date || data.startDate || 'Not specified',\n    endDate: data.end_date || data.endDate || 'Not specified',\n    materialsBy: data.materials_by || data.materialsProvidedBy || 'Not specified',\n    contactMethod: data.preferred_contact_method || data.preferredContactMethod || 'Not specified',\n    businessName: data.business_name || data.clientName || 'Not provided'\n  };\n  \n  // Format budget for display\n  if (summary.budget && !summary.budget.startsWith('$')) {\n    summary.budget = `$${summary.budget}`;\n  }\n  \n  // Format payment terms\n  if (summary.paymentTerms) {\n    summary.paymentTerms = summary.paymentTerms.replace(/(\\d+)%/g, '$1%');\n  }\n  \n  return summary;\n};\n\n// Generate SMS-friendly summary (160 char limit)\nconst generateSMSSummary = (data) => {\n  const parts = [];\n  \n  // Business name (truncated if needed)\n  const business = data.business_name || data.clientName || 'New Client';\n  parts.push(business.length > 20 ? business.substring(0, 17) + '...' : business);\n  \n  // Project type\n  const projectType = data.project_type || data.projectType || 'Project';\n  parts.push(projectType);\n  \n  // Address (truncated)\n  const address = data.project_address || data.projectAddress || 'Address pending';\n  parts.push(address.length > 30 ? address.substring(0, 27) + '...' : address);\n  \n  // Budget\n  const budget = data.budget || 'Budget pending';\n  parts.push(budget);\n  \n  // Contact method\n  const contact = data.preferred_contact_method || data.preferredContactMethod || 'Contact pending';\n  parts.push(contact);\n  \n  let smsText = parts.join('\\n');\n  \n  // Add compliance warnings if any\n  if (data.complianceWarnings && data.complianceWarnings.length > 0) {\n    smsText += '\\n⚠️ Review required';\n  }\n  \n  // Add call ID\n  smsText += `\\nID: ${callSid || 'N/A'}`;\n  \n  // Ensure we don't exceed 160 characters\n  if (smsText.length > 160) {\n    smsText = smsText.substring(0, 157) + '...';\n  }\n  \n  return smsText;\n};\n\n// Generate email summary\nconst generateEmailSummary = (data) => {\n  const summary = generateDetailedSummary(data);\n  \n  return `New Construction Contract Request\n\nCall Details:\n- Call ID: ${callSid || 'N/A'}\n- Timestamp: ${new Date().toLocaleString()}\n- Caller Phone: ${data.callerPhone || data.From || 'N/A'}\n\nBusiness Information:\n- Business Name: ${summary.businessName}\n- Contact Method: ${summary.contactMethod}\n- Returning Customer: ${data.isReturningCaller || data.is_Repeat ? 'Yes' : 'No'}\n\nProject Details:\n- Project Type: ${summary.projectType}\n- Address: ${summary.address}\n- Scope: ${summary.scope}\n- Budget: ${summary.budget}\n- Payment Terms: ${summary.paymentTerms}\n- Materials By: ${summary.materialsBy}\n- Start Date: ${summary.startDate}\n- End Date: ${summary.endDate}\n\nScope Summary:\n${buildScopeSummary(data)}\n\n${data.complianceWarnings && data.complianceWarnings.length > 0 ? \n`Compliance Warnings:\n${data.complianceWarnings.join('\\n')}\n\n` : ''}Next Steps:\n1. Review project details\n2. Generate contract document\n3. Send to customer via ${summary.contactMethod}\n4. Follow up within 24 hours`;\n};\n\n// Generate contract summary for document generation\nconst generateContractSummary = (data) => {\n  const summary = generateDetailedSummary(data);\n  \n  return {\n    projectOverview: buildScopeSummary(data),\n    detailedScope: summary.scope,\n    financialSummary: {\n      budget: summary.budget,\n      paymentTerms: summary.paymentTerms\n    },\n    timeline: {\n      startDate: summary.startDate,\n      endDate: summary.endDate\n    },\n    materials: summary.materialsBy,\n    contactInfo: {\n      businessName: summary.businessName,\n      contactMethod: summary.contactMethod\n    }\n  };\n};\n\n// Generate notification payload\nconst generateNotificationPayload = (data) => {\n  const summary = generateDetailedSummary(data);\n  \n  return {\n    callSid: callSid,\n    timestamp: new Date().toISOString(),\n    caller: {\n      phone: data.callerPhone || data.From,\n      business: summary.businessName,\n      contactMethod: summary.contactMethod,\n      isReturning: data.isReturningCaller || data.is_Repeat\n    },\n    project: {\n      type: summary.projectType,\n      address: summary.address,\n      scope: summary.scope,\n      budget: summary.budget,\n      paymentTerms: summary.paymentTerms,\n      materialsBy: summary.materialsBy,\n      startDate: summary.startDate,\n      endDate: summary.endDate\n    },\n    compliance: {\n      warnings: data.complianceWarnings || [],\n      licenseNumber: data.license_number || data.licenseNumber\n    },\n    scopeSummary: buildScopeSummary(data)\n  };\n};\n\n// Main function\nconst buildScopeSummaryData = () => {\n  try {\n    const scopeSummary = buildScopeSummary(projectData);\n    const detailedSummary = generateDetailedSummary(projectData);\n    const smsSummary = generateSMSSummary(projectData);\n    const emailSummary = generateEmailSummary(projectData);\n    const contractSummary = generateContractSummary(projectData);\n    const notificationPayload = generateNotificationPayload(projectData);\n    \n    return {\n      scopeSummary,\n      detailedSummary,\n      smsSummary,\n      emailSummary,\n      contractSummary,\n      notificationPayload,\n      timestamp: new Date().toISOString(),\n      callSid: callSid,\n      success: true\n    };\n    \n  } catch (error) {\n    console.error('Error building scope summary:', error);\n    return {\n      error: 'SCOPE_SUMMARY_ERROR',\n      message: error.message,\n      timestamp: new Date().toISOString(),\n      callSid: callSid,\n      success: false\n    };\n  }\n};\n\n// Execute and return results\nreturn buildScopeSummaryData();"
+      },
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "id": "build-scope-summary"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check Caller Directory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Caller Directory": {
+      "main": [
+        [
+          {
+            "node": "Process Speech Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Speech Input": {
+      "main": [
+        [
+          {
+            "node": "Build Scope Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "enhanced-orchestrator",
+  "tags": [
+    {
+      "createdAt": "2025-01-27T10:00:00.000Z",
+      "updatedAt": "2025-01-27T10:00:00.000Z",
+      "id": "voice-intake",
+      "name": "Voice Intake"
+    }
+  ]
+} 

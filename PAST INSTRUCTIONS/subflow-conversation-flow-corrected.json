@@ -1,0 +1,44 @@
+{
+  "name": "Conversation Flow Subflow",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const conversationState = $json.conversationState;\nconst followUpQuestion = $json.question;\nconst callerInfo = $json.callerInfo;\nconst extractedData = $json.extractedData;\n\nconst createTwiML = (message, gatherOptions = {}) => {\n  const defaultGather = {\n    input: 'speech',\n    timeout: 10,\n    speechTimeout: 'auto',\n    action: '/webhook/process-speech',\n    method: 'POST'\n  };\n  \n  const gather = { ...defaultGather, ...gatherOptions };\n  \n  return `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response>\n  <Say voice=\"alice\">${message}</Say>\n  <Gather input=\"${gather.input}\" \n          timeout=\"${gather.timeout}\" \n          speechTimeout=\"${gather.speechTimeout}\"\n          action=\"${gather.action}\" \n          method=\"${gather.method}\">\n    <Say voice=\"alice\">I didn't catch that. Could you repeat?</Say>\n  </Gather>\n  <Say voice=\"alice\">Thanks for calling. We'll follow up with you soon.</Say>\n  <Hangup/>\n</Response>`;\n};\n\nconst responseTemplates = {\n  newCallerGreeting: () => {\n    const message = `Hi! I'm here to help you generate a construction contract. ${callerInfo.welcomeMessage}`;\n    return createTwiML(message);\n  },\n  \n  returningCallerGreeting: () => {\n    const message = callerInfo.welcomeMessage;\n    return createTwiML(message);\n  },\n  \n  followUpQuestion: () => {\n    const message = followUpQuestion;\n    return createTwiML(message);\n  },\n  \n  completion: () => {\n    const message = `Perfect! I've got all the details for your ${extractedData.project_type} project. I'll generate the contract and send it to you right away. Thanks for calling!`;\n    return createTwiML(message, { action: '/webhook/end-call' });\n  },\n  \n  error: (errorMessage = \"I'm having trouble processing that. Let me start over.\") => {\n    return createTwiML(errorMessage, { action: '/webhook/restart' });\n  }\n};\n\nlet response;\nswitch (conversationState) {\n  case 'new_caller_greeting':\n    response = responseTemplates.newCallerGreeting();\n    break;\n  case 'returning_caller_greeting':\n    response = responseTemplates.returningCallerGreeting();\n    break;\n  case 'follow_up':\n    response = responseTemplates.followUpQuestion();\n    break;\n  case 'complete':\n    response = responseTemplates.completion();\n    break;\n  case 'error':\n    response = responseTemplates.error();\n    break;\n  default:\n    response = responseTemplates.error();\n}\n\nreturn {\n  twiML: response,\n  conversationState,\n  callerInfo,\n  followUpQuestion\n};"
+      },
+      "id": "conversation-flow",
+      "name": "Conversation Flow",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.twiML }}"
+      },
+      "id": "twilio-response",
+      "name": "Twilio Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [460, 300]
+    }
+  ],
+  "connections": {
+    "Conversation Flow": {
+      "main": [
+        [
+          {
+            "node": "Twilio Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-01-15T10:00:00.000Z",
+  "versionId": "1"
+} 

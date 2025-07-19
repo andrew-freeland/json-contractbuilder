@@ -1,0 +1,247 @@
+{
+  "name": "Log to Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "functionCode": "// 📌 log-to-sheets-workflow.json\n// 🧠 Prepare call log data for Google Sheets and process analytics\nreturn items.map(item => {\n  try {\n    if (!item || !item.json) {\n      return {\n        error: 'INVALID_INPUT',\n        message: 'No input data provided',\n        timestamp: new Date().toISOString()\n      };\n    }\n    \n    const input = item.json;\n    \n    // Prepare data for Google Sheets logging\n    const callLogData = {\n      timestamp: input.timestamp || new Date().toISOString(),\n      callSid: input.callSid || input.CallSid,\n      callerPhone: input.callerPhone || input.caller?.phone || input.From,\n      businessName: input.clientName || input.caller?.business || input.business_name,\n      projectType: input.projectType || input.project?.type || input.project_type,\n      projectAddress: input.projectAddress || input.project?.address || input.project_address,\n      budget: input.budget || input.project?.budget,\n      paymentTerms: input.paymentTerms || input.project?.paymentTerms || input.payment_terms,\n      startDate: input.startDate || input.project?.startDate || input.start_date,\n      contactMethod: input.preferredContactMethod || input.caller?.contactMethod || input.preferred_contact_method,\n      isReturningCaller: input.isReturningCaller || input.caller?.isReturning ? 'Yes' : 'No',\n      conversationState: input.conversationState || 'completed',\n      hasFollowUp: input.hasFollowUp ? 'Yes' : 'No',\n      complianceWarnings: (input.compliance?.warnings || []).join('; '),\n      extractedDataQuality: input.extractedData ? 'Complete' : 'Incomplete',\n      processingTime: input.processingTime || 'N/A',\n      errorStatus: input.error ? 'Error' : 'Success',\n      errorMessage: input.error?.message || ''\n    };\n\n    // Validate required fields\n    const requiredFields = ['callSid', 'callerPhone', 'timestamp'];\n    const missingFields = requiredFields.filter(field => !callLogData[field]);\n\n    if (missingFields.length > 0) {\n      console.error('Missing required log fields:', missingFields);\n      return {\n        error: 'MISSING_REQUIRED_LOG_FIELDS',\n        message: `Missing required fields: ${missingFields.join(', ')}`,\n        callLogData: null,\n        timestamp: new Date().toISOString()\n      };\n    }\n\n    // Calculate analytics metrics\n    const analytics = {\n      callVolume: {\n        totalCalls: 1, // This will be aggregated in sheets\n        newCallers: callLogData.isReturningCaller === 'No' ? 1 : 0,\n        returningCallers: callLogData.isReturningCaller === 'Yes' ? 1 : 0\n      },\n      conversionMetrics: {\n        hasFollowUp: callLogData.hasFollowUp === 'Yes' ? 1 : 0,\n        dataComplete: callLogData.extractedDataQuality === 'Complete' ? 1 : 0,\n        hasErrors: callLogData.errorStatus === 'Error' ? 1 : 0\n      },\n      projectMetrics: {\n        projectType: callLogData.projectType || 'Unknown',\n        budgetRange: callLogData.budget ? 'Specified' : 'Not specified',\n        hasAddress: callLogData.projectAddress ? 'Yes' : 'No'\n      }\n    };\n\n    console.log('Call log data prepared successfully:', {\n      callSid: callLogData.callSid,\n      businessName: callLogData.businessName,\n      projectType: callLogData.projectType\n    });\n\n    return {\n      callLogData,\n      analytics,\n      timestamp: new Date().toISOString(),\n      success: true\n    };\n    \n  } catch (error) {\n    console.error('Error in log-to-sheets processing:', error);\n    return {\n      error: 'FUNCTION_EXECUTION_ERROR',\n      message: error.message,\n      timestamp: new Date().toISOString(),\n      callLogData: null,\n      analytics: null\n    };\n  }\n});"
+      },
+      "id": "prepare-call-log-data",
+      "name": "Prepare Call Log Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "append",
+        "documentId": "={{ $vars.SHEET_ID }}",
+        "sheetName": "CallLogs",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "callSid",
+              "displayName": "callSid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "callerPhone",
+              "displayName": "callerPhone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "businessName",
+              "displayName": "businessName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "projectType",
+              "displayName": "projectType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "projectAddress",
+              "displayName": "projectAddress",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "paymentTerms",
+              "displayName": "paymentTerms",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "startDate",
+              "displayName": "startDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contactMethod",
+              "displayName": "contactMethod",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "isReturningCaller",
+              "displayName": "isReturningCaller",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "conversationState",
+              "displayName": "conversationState",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hasFollowUp",
+              "displayName": "hasFollowUp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "complianceWarnings",
+              "displayName": "complianceWarnings",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "extractedDataQuality",
+              "displayName": "extractedDataQuality",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processingTime",
+              "displayName": "processingTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "errorStatus",
+              "displayName": "errorStatus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "errorMessage",
+              "displayName": "errorMessage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "append-call-log",
+      "name": "Append Call Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "credentials": {
+        "googleApi": {
+          "id": "BaM9ecgM7tTRQieT",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Function Node: Process Analytics\nconst input = $json;\n\n// Calculate analytics metrics\nconst analytics = {\n  callVolume: {\n    totalCalls: 1, // This will be aggregated in sheets\n    newCallers: input.callLogData.isReturningCaller === 'No' ? 1 : 0,\n    returningCallers: input.callLogData.isReturningCaller === 'Yes' ? 1 : 0\n  },\n  conversionMetrics: {\n    hasFollowUp: input.callLogData.hasFollowUp === 'Yes' ? 1 : 0,\n    dataComplete: input.callLogData.extractedDataQuality === 'Complete' ? 1 : 0,\n    hasErrors: input.callLogData.errorStatus === 'Error' ? 1 : 0\n  },\n  projectMetrics: {\n    projectType: input.callLogData.projectType || 'Unknown',\n    budgetRange: input.callLogData.budget ? 'Specified' : 'Not specified',\n    hasAddress: input.callLogData.projectAddress ? 'Yes' : 'No'\n  }\n};\n\nreturn {\n  ...input,\n  analytics,\n  processedAt: new Date().toISOString()\n};"
+      },
+      "id": "process-analytics",
+      "name": "Process Analytics",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "Prepare Call Log Data": {
+      "main": [
+        [
+          {
+            "node": "Append Call Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Call Log": {
+      "main": [
+        [
+          {
+            "node": "Process Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-01-15T10:00:00.000Z",
+  "versionId": "1"
+} 

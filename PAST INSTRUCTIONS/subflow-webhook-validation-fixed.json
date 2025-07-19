@@ -1,0 +1,77 @@
+{
+  "name": "Webhook Validation Subflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-intake",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Function Node: Webhook Validation\nconst webhookData = $json;\nconst callSid = webhookData.CallSid;\nconst callerPhone = webhookData.From;\nconst speechResult = webhookData.SpeechResult;\n\n// Validate required fields\nconst required = ['CallSid', 'From', 'SpeechResult', 'To'];\nconst missing = required.filter(field => !webhookData[field]);\n\nif (missing.length > 0) {\n  return {\n    error: 'INVALID_WEBHOOK',\n    message: `Missing fields: ${missing.join(', ')}`,\n    callSid: callSid\n  };\n}\n\n// Validate CallSid format\nif (!callSid.match(/^CA[a-zA-Z0-9]{32}$/)) {\n  return {\n    error: 'INVALID_CALLSID',\n    message: 'Invalid CallSid format',\n    callSid: callSid\n  };\n}\n\n// Validate phone number format\nif (!callerPhone.match(/^\\+[1-9]\\d{1,14}$/)) {\n  return {\n    error: 'INVALID_PHONE',\n    message: 'Invalid phone number format',\n    callerPhone: callerPhone\n  };\n}\n\nreturn {\n  isValid: true,\n  webhookData: webhookData,\n  callSid: callSid,\n  callerPhone: callerPhone,\n  speechResult: speechResult\n};"
+      },
+      "id": "webhook-validation",
+      "name": "Webhook Validation",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.twiML }}",
+        "responseHeaders": {
+          "values": [
+            {
+              "name": "Content-Type",
+              "value": "application/xml"
+            }
+          ]
+        }
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Webhook Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Validation": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["webhook", "validation"],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-15T10:00:00.000Z",
+  "versionId": "1"
+} 

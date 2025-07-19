@@ -1,0 +1,97 @@
+{
+  "name": "Send Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "functionCode": "// 📌 send-notifications-workflow.json\n// 🧠 Process notification data and format SMS/email messages\nreturn items.map(item => {\n  try {\n    if (!item || !item.json) {\n      return {\n        error: 'INVALID_INPUT',\n        message: 'No input data provided',\n        timestamp: new Date().toISOString()\n      };\n    }\n    \n    const input = item.json;\n    \n    // Extract notification data\n    const notificationData = {\n      callSid: input.callSid || input.CallSid,\n      timestamp: input.timestamp || new Date().toISOString(),\n      caller: {\n        phone: input.caller?.phone || input.callerPhone || input.From,\n        business: input.caller?.business || input.clientName || input.business_name,\n        contactMethod: input.caller?.contactMethod || input.preferredContactMethod || input.preferred_contact_method,\n        isReturning: input.caller?.isReturning || input.isReturningCaller\n      },\n      project: {\n        type: input.project?.type || input.projectType || input.project_type,\n        address: input.project?.address || input.projectAddress || input.project_address,\n        scope: input.project?.scope || input.scopeOfWork || input.scope,\n        budget: input.project?.budget || input.budget,\n        paymentTerms: input.project?.paymentTerms || input.paymentTerms || input.payment_terms,\n        startDate: input.project?.startDate || input.startDate || input.start_date\n      },\n      compliance: {\n        warnings: input.compliance?.warnings || [],\n        licenseNumber: input.compliance?.licenseNumber || input.license_number\n      }\n    };\n\n    // Format SMS message (160 character limit)\n    const smsMessage = `🏗️ ${notificationData.caller.business || 'New Client'}\\n${notificationData.project.type || 'Project'}\\n📍 ${notificationData.project.address || 'Address pending'}\\n💰 ${notificationData.project.budget || 'Budget pending'}\\n📱 ${notificationData.caller.contactMethod || 'Contact pending'}\\n${notificationData.compliance.warnings.length > 0 ? '⚠️ Review required' : ''}\\nID: ${notificationData.callSid}`;\n\n    // Format email subject\n    const emailSubject = `New Contract Request: ${notificationData.caller.business || 'Unknown'} - ${notificationData.project.type || 'Project'}`;\n\n    // Format email body\n    const emailBody = `New Construction Contract Request\\n\\nCall Details:\\n- Call ID: ${notificationData.callSid}\\n- Timestamp: ${new Date(notificationData.timestamp).toLocaleString()}\\n- Caller Phone: ${notificationData.caller.phone}\\n\\nBusiness Information:\\n- Business Name: ${notificationData.caller.business || 'Not provided'}\\n- Contact Method: ${notificationData.caller.contactMethod || 'Not specified'}\\n- Returning Customer: ${notificationData.caller.isReturning ? 'Yes' : 'No'}\\n\\nProject Details:\\n- Project Type: ${notificationData.project.type || 'Not specified'}\\n- Address: ${notificationData.project.address || 'Not provided'}\\n- Scope: ${notificationData.project.scope || 'Not provided'}\\n- Budget: ${notificationData.project.budget || 'Not specified'}\\n- Payment Terms: ${notificationData.project.paymentTerms || 'Not specified'}\\n- Start Date: ${notificationData.project.startDate || 'Not specified'}\\n\\nCompliance:\\n- License Number: ${notificationData.compliance.licenseNumber || 'Not provided'}\\n- Warnings: ${notificationData.compliance.warnings.join(', ') || 'None'}\\n\\nNext Steps:\\n1. Review project details\\n2. Generate contract document\\n3. Send to customer via ${notificationData.caller.contactMethod || 'preferred method'}\\n4. Follow up within 24 hours`;\n\n    // Check if notifications were sent successfully\n    const notificationStatus = {\n      smsSent: input.smsStatus === 'success',\n      emailSent: input.emailStatus === 'success',\n      timestamp: new Date().toISOString(),\n      callSid: notificationData.callSid\n    };\n\n    // Log failed notifications\n    if (!notificationStatus.smsSent || !notificationStatus.emailSent) {\n      console.error('Notification delivery failed:', {\n        callSid: notificationStatus.callSid,\n        smsStatus: input.smsStatus,\n        emailStatus: input.emailStatus\n      });\n    }\n\n    console.log('Notification data processed successfully:', {\n      callSid: notificationData.callSid,\n      business: notificationData.caller.business,\n      projectType: notificationData.project.type\n    });\n\n    return {\n      notificationData,\n      smsMessage,\n      emailSubject,\n      emailBody,\n      notificationStatus,\n      success: notificationStatus.smsSent && notificationStatus.emailSent,\n      timestamp: new Date().toISOString()\n    };\n    \n  } catch (error) {\n    console.error('Error in notification processing:', error);\n    return {\n      error: 'FUNCTION_EXECUTION_ERROR',\n      message: error.message,\n      timestamp: new Date().toISOString()\n    };\n  }\n});"
+      },
+      "id": "process-notification-data",
+      "name": "Process Notification Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "to": "={{ $vars.ADMIN_PHONE }}",
+        "from": "={{ $vars.TWILIO_PHONE_NUMBER }}",
+        "body": "={{ $json.smsMessage }}"
+      },
+      "id": "send-sms-notification",
+      "name": "Send SMS Notification",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "twilioApi": {
+          "id": "ygeRXvfkZaL3xp5P",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "to": "={{ $vars.ADMIN_EMAIL }}",
+        "subject": "={{ $json.emailSubject }}",
+        "text": "={{ $json.emailBody }}"
+      },
+      "id": "send-email-notification",
+      "name": "Send Email Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Function Node: Handle Notification Errors\nconst input = $json;\n\n// Check if notifications were sent successfully\nconst notificationStatus = {\n  smsSent: input.smsStatus === 'success',\n  emailSent: input.emailStatus === 'success',\n  timestamp: new Date().toISOString(),\n  callSid: input.notificationData?.callSid\n};\n\n// Log failed notifications\nif (!notificationStatus.smsSent || !notificationStatus.emailSent) {\n  console.error('Notification delivery failed:', {\n    callSid: notificationStatus.callSid,\n    smsStatus: input.smsStatus,\n    emailStatus: input.emailStatus\n  });\n}\n\nreturn {\n  ...input,\n  notificationStatus,\n  success: notificationStatus.smsSent && notificationStatus.emailSent\n};"
+      },
+      "id": "handle-notification-errors",
+      "name": "Handle Notification Errors",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Process Notification Data": {
+      "main": [
+        [
+          {
+            "node": "Send SMS Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send SMS Notification": {
+      "main": [
+        [
+          {
+            "node": "Send Email Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email Notification": {
+      "main": [
+        [
+          {
+            "node": "Handle Notification Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-01-15T10:00:00.000Z",
+  "versionId": "1"
+} 

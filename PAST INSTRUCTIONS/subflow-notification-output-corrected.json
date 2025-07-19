@@ -1,0 +1,70 @@
+{
+  "name": "Notification Output Subflow",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const extractedData = $json.extractedData;\nconst callerData = $json.callerData;\nconst callSid = $json.callSid;\n\n// Format notification payload\nconst notificationPayload = {\n  callSid: callSid,\n  timestamp: new Date().toISOString(),\n  caller: {\n    phone: callerData.phone_number,\n    business: callerData.business_name,\n    contactMethod: callerData.contact_method,\n    isReturning: callerData.is_repeat\n  },\n  project: {\n    type: extractedData.project_type,\n    address: extractedData.project_address,\n    scope: extractedData.scope,\n    budget: extractedData.budget,\n    paymentTerms: extractedData.payment_terms,\n    materialsBy: extractedData.materials_by,\n    startDate: extractedData.start_date,\n    endDate: extractedData.end_date\n  },\n  compliance: {\n    licenseNumber: extractedData.license_number,\n    warnings: []\n  }\n};\n\n// Add compliance warnings\nif (!extractedData.license_number && extractedData.business_name) {\n  notificationPayload.compliance.warnings.push(\"Missing: GC License Number\");\n}\n\nif (extractedData.payment_terms && extractedData.payment_terms.includes(\"50%\") && extractedData.payment_terms.includes(\"upfront\")) {\n  notificationPayload.compliance.warnings.push(\"⚠️ CSLB payment structure may be unclear\");\n}\n\n// Format SMS summary\nconst smsSummary = `New Contract Request\\n\\nBusiness: ${callerData.business_name || 'Not provided'}\\nProject: ${extractedData.project_type || 'Not specified'}\\nAddress: ${extractedData.project_address || 'Not provided'}\\nBudget: ${extractedData.budget || 'Not specified'}\\nContact: ${callerData.contact_method || 'Not specified'}\\n\\nCall SID: ${callSid}`;\n\n// Format email summary\nconst emailSummary = `New Construction Contract Request\\n\\nCall Details:\\n- Call SID: ${callSid}\\n- Timestamp: ${new Date().toLocaleString()}\\n- Caller Phone: ${callerData.phone_number}\\n\\nBusiness Information:\\n- Business Name: ${callerData.business_name || 'Not provided'}\\n- Contact Method: ${callerData.contact_method || 'Not specified'}\\n- Returning Customer: ${callerData.is_repeat ? 'Yes' : 'No'}\\n\\nProject Details:\\n- Project Type: ${extractedData.project_type || 'Not specified'}\\n- Address: ${extractedData.project_address || 'Not provided'}\\n- Scope: ${extractedData.scope || 'Not provided'}\\n- Budget: ${extractedData.budget || 'Not specified'}\\n- Payment Terms: ${extractedData.payment_terms || 'Not specified'}\\n- Materials By: ${extractedData.materials_by || 'Not specified'}\\n- Start Date: ${extractedData.start_date || 'Not specified'}\\n- End Date: ${extractedData.end_date || 'Not specified'}\\n\\nCompliance:\\n- License Number: ${extractedData.license_number || 'Not provided'}\\n- Warnings: ${notificationPayload.compliance.warnings.join(', ') || 'None'}\\n\\nNext Steps:\\n1. Review project details\\n2. Generate contract document\\n3. Send to customer via ${callerData.contact_method || 'preferred method'}\\n4. Follow up within 24 hours`;\n\nreturn {\n  notificationPayload,\n  smsSummary,\n  emailSummary,\n  callSid: callSid,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "notification-output",
+      "name": "Notification Output",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "to": "={{ $json.smsSummary }}",
+        "from": "your-twilio-number",
+        "body": "={{ $json.smsSummary }}"
+      },
+      "id": "send-sms",
+      "name": "Send SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "to": "admin@yourcompany.com",
+        "subject": "New Contract Request - {{ $json.extractedData.project_type }}",
+        "text": "={{ $json.emailSummary }}"
+      },
+      "id": "send-email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "Notification Output": {
+      "main": [
+        [
+          {
+            "node": "Send SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send SMS": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-01-15T10:00:00.000Z",
+  "versionId": "1"
+} 

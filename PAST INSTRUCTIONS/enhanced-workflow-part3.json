@@ -1,0 +1,80 @@
+{
+  "name": "Enhanced Response Generation",
+  "nodes": [
+    {
+      "parameters": {
+        "functionCode": "// Enhanced Twilio Response Generation\nconst conversationState = $json.conversationState;\nconst followUpQuestion = $json.question;\nconst callerInfo = $json.callerInfo;\nconst extractedData = $json.extractedData;\nconst hasFollowUp = $json.hasFollowUp;\nconst isReturningCaller = $json.isReturningCaller;\n\n// Base TwiML template\nconst createTwiML = (message, gatherOptions = {}) => {\n  const defaultGather = {\n    input: 'speech',\n    timeout: 10,\n    speechTimeout: 'auto',\n    action: '/webhook/process-speech',\n    method: 'POST'\n  };\n  \n  const gather = { ...defaultGather, ...gatherOptions };\n  \n  return `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response>\n  <Say voice=\"alice\">${message}</Say>\n  <Gather input=\"${gather.input}\" \n          timeout=\"${gather.timeout}\" \n          speechTimeout=\"${gather.speechTimeout}\"\n          action=\"${gather.action}\" \n          method=\"${gather.method}\">\n    <Say voice=\"alice\">I didn't catch that. Could you repeat?</Say>\n  </Gather>\n  <Say voice=\"alice\">Thanks for calling. We'll follow up with you soon.</Say>\n  <Hangup/>\n</Response>`;\n};\n\n// Response templates for different scenarios\nconst responseTemplates = {\n  newCallerGreeting: () => {\n    const message = `Hi! I'm here to help you generate a construction contract. ${callerInfo?.welcomeMessage || \"What's the name of your business?\"}`;\n    return createTwiML(message);\n  },\n  \n  returningCallerGreeting: () => {\n    const message = callerInfo?.welcomeMessage || \"Welcome back! How can I help you today?\";\n    return createTwiML(message);\n  },\n  \n  followUpQuestion: () => {\n    const message = followUpQuestion || \"Could you provide more details about your project?\";\n    return createTwiML(message);\n  },\n  \n  completion: () => {\n    const projectType = extractedData?.project_type || 'project';\n    const message = `Perfect! I've got all the details for your ${projectType} project. I'll generate the contract and send it to you right away. Thanks for calling!`;\n    return createTwiML(message, { action: '/webhook/end-call' });\n  },\n  \n  error: (errorMessage = \"I'm having trouble processing that. Let me start over.\") => {\n    return createTwiML(errorMessage, { action: '/webhook/restart' });\n  }\n};\n\n// Determine which template to use\nlet response;\nif (hasFollowUp) {\n  response = responseTemplates.followUpQuestion();\n} else if (isReturningCaller) {\n  response = responseTemplates.returningCallerGreeting();\n} else if (conversationState === 'complete') {\n  response = responseTemplates.completion();\n} else if (conversationState === 'error') {\n  response = responseTemplates.error();\n} else {\n  response = responseTemplates.newCallerGreeting();\n}\n\nreturn {\n  twiML: response,\n  conversationState,\n  callerInfo,\n  followUpQuestion,\n  hasFollowUp,\n  isReturningCaller,\n  // Preserve existing data\n  ...$json\n};"
+      },
+      "id": "enhanced-twilio-response",
+      "name": "Enhanced Twilio Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.twiML }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/xml"
+              }
+            ]
+          }
+        }
+      },
+      "id": "enhanced-webhook-response",
+      "name": "Enhanced Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -500,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Enhanced Notification Output\nconst extractedData = $json.extractedData;\nconst callerData = $json.callerData;\nconst callSid = $json.callSid;\nconst isReturningCaller = $json.isReturningCaller;\n\n// Format notification payload\nconst notificationPayload = {\n  callSid: callSid,\n  timestamp: new Date().toISOString(),\n  caller: {\n    phone: callerData?.phone_number,\n    business: callerData?.business_name,\n    contactMethod: callerData?.contact_method,\n    isReturning: isReturningCaller\n  },\n  project: {\n    type: extractedData?.project_type,\n    address: extractedData?.project_address,\n    scope: extractedData?.scope,\n    budget: extractedData?.budget,\n    paymentTerms: extractedData?.payment_terms,\n    materialsBy: extractedData?.materials_by,\n    startDate: extractedData?.start_date,\n    endDate: extractedData?.end_date\n  },\n  compliance: {\n    licenseNumber: extractedData?.license_number,\n    warnings: []\n  }\n};\n\n// Add compliance warnings\nif (!extractedData?.license_number && extractedData?.business_name) {\n  notificationPayload.compliance.warnings.push(\"Missing: GC License Number\");\n}\n\nif (extractedData?.payment_terms && extractedData.payment_terms.includes(\"50%\") && extractedData.payment_terms.includes(\"upfront\")) {\n  notificationPayload.compliance.warnings.push(\"⚠️ CSLB payment structure may be unclear\");\n}\n\n// Format SMS summary\nconst smsSummary = `New Contract Request\\n\\nBusiness: ${callerData?.business_name || 'Not provided'}\\nProject: ${extractedData?.project_type || 'Not specified'}\\nAddress: ${extractedData?.project_address || 'Not provided'}\\nBudget: ${extractedData?.budget || 'Not specified'}\\nContact: ${callerData?.contact_method || 'Not specified'}\\n\\nCall SID: ${callSid}`;\n\n// Format email summary\nconst emailSummary = `New Construction Contract Request\\n\\nCall Details:\\n- Call SID: ${callSid}\\n- Timestamp: ${new Date().toLocaleString()}\\n- Caller Phone: ${callerData?.phone_number}\\n\\nBusiness Information:\\n- Business Name: ${callerData?.business_name || 'Not provided'}\\n- Contact Method: ${callerData?.contact_method || 'Not specified'}\\n- Returning Customer: ${isReturningCaller ? 'Yes' : 'No'}\\n\\nProject Details:\\n- Project Type: ${extractedData?.project_type || 'Not specified'}\\n- Address: ${extractedData?.project_address || 'Not provided'}\\n- Scope: ${extractedData?.scope || 'Not provided'}\\n- Budget: ${extractedData?.budget || 'Not specified'}\\n- Payment Terms: ${extractedData?.payment_terms || 'Not specified'}\\n- Materials By: ${extractedData?.materials_by || 'Not specified'}\\n- Start Date: ${extractedData?.start_date || 'Not specified'}\\n- End Date: ${extractedData?.end_date || 'Not specified'}\\n\\nCompliance:\\n- License Number: ${extractedData?.license_number || 'Not provided'}\\n- Warnings: ${notificationPayload.compliance.warnings.join(', ') || 'None'}\\n\\nNext Steps:\\n1. Review project details\\n2. Generate contract document\\n3. Send to customer via ${callerData?.contact_method || 'preferred method'}\\n4. Follow up within 24 hours`;\n\nreturn {\n  notificationPayload,\n  smsSummary,\n  emailSummary,\n  callSid: callSid,\n  timestamp: new Date().toISOString(),\n  // Preserve existing data\n  ...$json\n};"
+      },
+      "id": "enhanced-notification-output",
+      "name": "Enhanced Notification Output",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -280,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Enhanced Twilio Response": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Webhook Response": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Notification Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+} 

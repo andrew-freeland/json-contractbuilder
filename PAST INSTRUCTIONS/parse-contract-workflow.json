@@ -1,0 +1,85 @@
+{
+  "name": "Parse Contract",
+  "nodes": [
+    {
+      "parameters": {
+        "functionCode": "// 📌 parse-contract-workflow.json\n// 🧠 Validate contract input and generate CSLB-compliant contract template\nreturn items.map(item => {\n  try {\n    if (!item || !item.json) {\n      return {\n        error: 'INVALID_INPUT',\n        message: 'No input data provided',\n        timestamp: new Date().toISOString()\n      };\n    }\n    \n    const input = item.json;\n    \n    // Required fields for contract generation\n    const requiredFields = [\n      'projectType', 'clientName', 'projectAddress', \n      'budget', 'startDate', 'scopeOfWork', 'paymentTerms'\n    ];\n\n    const missing = requiredFields.filter(field => !input[field]);\n\n    if (missing.length > 0) {\n      console.error('Missing required contract fields:', missing);\n      return {\n        error: 'MISSING_REQUIRED_FIELDS',\n        message: `Missing required fields: ${missing.join(', ')}`,\n        missingFields: missing,\n        timestamp: new Date().toISOString()\n      };\n    }\n\n    // Validate data types and formats\n    const validations = {\n      budget: /^\\$[\\d,]+\\.\\d{2}$/.test(input.budget),\n      startDate: /^\\w+\\s+\\d{1,2}/.test(input.startDate),\n      paymentTerms: /^\\d+%/.test(input.paymentTerms)\n    };\n\n    const invalidFields = Object.entries(validations)\n      .filter(([field, valid]) => !valid)\n      .map(([field]) => field);\n\n    if (invalidFields.length > 0) {\n      console.error('Invalid data format for fields:', invalidFields);\n      return {\n        error: 'INVALID_DATA_FORMAT',\n        message: `Invalid format for fields: ${invalidFields.join(', ')}`,\n        invalidFields: invalidFields,\n        timestamp: new Date().toISOString()\n      };\n    }\n\n    // CSLB §7159 compliant contract template\n    const contractTemplate = `CONSTRUCTION CONTRACT AGREEMENT\n\nThis Construction Contract Agreement (the \"Contract\") is entered into on ${new Date().toLocaleDateString()} by and between:\n\nCONTRACTOR: [Your Company Name]\nAddress: [Your Address]\nLicense Number: [Your License Number]\nPhone: [Your Phone]\n\nCLIENT: ${input.clientName || 'To be specified'}\nAddress: ${input.projectAddress || 'To be specified'}\nPhone: [Client Phone]\n\nPROJECT DETAILS:\nProject Type: ${input.projectType || 'To be specified'}\nProject Address: ${input.projectAddress || 'To be specified'}\nScope of Work: ${input.scopeOfWork || 'To be specified'}\n\nCONTRACT PRICE: ${input.budget || 'To be specified'}\n\nPAYMENT TERMS: ${input.paymentTerms || 'To be specified'}\n\nSTART DATE: ${input.startDate || 'To be specified'}\nCOMPLETION DATE: ${input.endDate || 'To be determined'}\n\nMATERIALS: ${input.materialsProvidedBy || 'To be specified'}\n\nADDITIONAL TERMS:\n1. All work shall be performed in accordance with applicable building codes\n2. Contractor shall obtain all necessary permits\n3. Client shall provide access to the property during normal business hours\n4. Any changes to this contract must be in writing and signed by both parties\n\nSIGNATURES:\n_________________________\nContractor Date\n\n_________________________\nClient Date\n\nThis contract complies with California CSLB §7159 requirements.`;\n\n    // CSLB §7159 requirements checklist\n    const complianceCheck = {\n      requiredElements: {\n        contractorInfo: !!input.contractorName,\n        clientInfo: !!input.clientName,\n        projectAddress: !!input.projectAddress,\n        contractPrice: !!input.budget,\n        paymentTerms: !!input.paymentTerms,\n        startDate: !!input.startDate,\n        scopeOfWork: !!input.scopeOfWork,\n        materialsInfo: !!input.materialsProvidedBy\n      },\n      warnings: []\n    };\n\n    // Check for common compliance issues\n    if (input.paymentTerms && input.paymentTerms.includes('50%') && input.paymentTerms.includes('upfront')) {\n      complianceCheck.warnings.push('⚠️ CSLB requires clear payment structure - 50% upfront may need clarification');\n    }\n\n    if (!input.licenseNumber) {\n      complianceCheck.warnings.push('⚠️ Contractor license number should be included');\n    }\n\n    if (!input.endDate) {\n      complianceCheck.warnings.push('⚠️ Completion date should be specified');\n    }\n\n    const isCompliant = Object.values(complianceCheck.requiredElements).every(Boolean);\n\n    // Generate final contract with compliance notes\n    const finalContract = {\n      contractText: contractTemplate,\n      metadata: {\n        generatedAt: new Date().toISOString(),\n        callSid: input.callSid,\n        clientName: input.clientName,\n        projectType: input.projectType,\n        contractValue: input.budget,\n        complianceStatus: isCompliant ? 'COMPLIANT' : 'REVIEW_REQUIRED',\n        warnings: complianceCheck.warnings\n      },\n      deliveryInfo: {\n        contactMethod: input.preferredContactMethod || 'email',\n        contactEmail: input.contactEmail,\n        contactPhone: input.contactPhone\n      }\n    };\n\n    console.log('Contract generated successfully:', {\n      clientName: input.clientName,\n      projectType: input.projectType,\n      complianceStatus: isCompliant ? 'COMPLIANT' : 'REVIEW_REQUIRED'\n    });\n\n    return {\n      ...finalContract,\n      success: true,\n      timestamp: new Date().toISOString()\n    };\n    \n  } catch (error) {\n    console.error('Error in contract generation:', error);\n    return {\n      error: 'FUNCTION_EXECUTION_ERROR',\n      message: error.message,\n      timestamp: new Date().toISOString()\n    };\n  }\n});"
+      },
+      "id": "validate-contract-input",
+      "name": "Validate Contract Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Function Node: Generate Contract Template\nconst data = $json.contractData;\n\n// CSLB §7159 compliant contract template\nconst contractTemplate = `CONSTRUCTION CONTRACT AGREEMENT\n\nThis Construction Contract Agreement (the \"Contract\") is entered into on ${new Date().toLocaleDateString()} by and between:\n\nCONTRACTOR: [Your Company Name]\nAddress: [Your Address]\nLicense Number: [Your License Number]\nPhone: [Your Phone]\n\nCLIENT: ${data.clientName || 'To be specified'}\nAddress: ${data.projectAddress || 'To be specified'}\nPhone: [Client Phone]\n\nPROJECT DETAILS:\nProject Type: ${data.projectType || 'To be specified'}\nProject Address: ${data.projectAddress || 'To be specified'}\nScope of Work: ${data.scopeOfWork || 'To be specified'}\n\nCONTRACT PRICE: ${data.budget || 'To be specified'}\n\nPAYMENT TERMS: ${data.paymentTerms || 'To be specified'}\n\nSTART DATE: ${data.startDate || 'To be specified'}\nCOMPLETION DATE: ${data.endDate || 'To be determined'}\n\nMATERIALS: ${data.materialsProvidedBy || 'To be specified'}\n\nADDITIONAL TERMS:\n1. All work shall be performed in accordance with applicable building codes\n2. Contractor shall obtain all necessary permits\n3. Client shall provide access to the property during normal business hours\n4. Any changes to this contract must be in writing and signed by both parties\n\nSIGNATURES:\n_________________________\nContractor Date\n\n_________________________\nClient Date\n\nThis contract complies with California CSLB §7159 requirements.`;\n\nreturn {\n  contractTemplate,\n  contractData: data,\n  generatedAt: new Date().toISOString(),\n  complianceStatus: 'CSLB_7159_COMPLIANT'\n};"
+      },
+      "id": "generate-contract-template",
+      "name": "Generate Contract Template",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Function Node: CSLB Compliance Check\nconst contractData = $json.contractData;\n\n// CSLB §7159 requirements checklist\nconst complianceCheck = {\n  requiredElements: {\n    contractorInfo: !!contractData.contractorName,\n    clientInfo: !!contractData.clientName,\n    projectAddress: !!contractData.projectAddress,\n    contractPrice: !!contractData.budget,\n    paymentTerms: !!contractData.paymentTerms,\n    startDate: !!contractData.startDate,\n    scopeOfWork: !!contractData.scopeOfWork,\n    materialsInfo: !!contractData.materialsProvidedBy\n  },\n  warnings: []\n};\n\n// Check for common compliance issues\nif (contractData.paymentTerms && contractData.paymentTerms.includes('50%') && contractData.paymentTerms.includes('upfront')) {\n  complianceCheck.warnings.push('⚠️ CSLB requires clear payment structure - 50% upfront may need clarification');\n}\n\nif (!contractData.licenseNumber) {\n  complianceCheck.warnings.push('⚠️ Contractor license number should be included');\n}\n\nif (!contractData.endDate) {\n  complianceCheck.warnings.push('⚠️ Completion date should be specified');\n}\n\nconst isCompliant = Object.values(complianceCheck.requiredElements).every(Boolean);\n\nreturn {\n  isCompliant,\n  complianceCheck,\n  contractData,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "cslb-compliance-check",
+      "name": "CSLB Compliance Check",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Function Node: Generate Final Contract\nconst template = $json.contractTemplate;\nconst compliance = $json.complianceCheck;\nconst data = $json.contractData;\n\n// Generate final contract with compliance notes\nconst finalContract = {\n  contractText: template,\n  metadata: {\n    generatedAt: new Date().toISOString(),\n    callSid: data.callSid,\n    clientName: data.clientName,\n    projectType: data.projectType,\n    contractValue: data.budget,\n    complianceStatus: compliance.isCompliant ? 'COMPLIANT' : 'REVIEW_REQUIRED',\n    warnings: compliance.warnings\n  },\n  deliveryInfo: {\n    contactMethod: data.preferredContactMethod || 'email',\n    contactEmail: data.contactEmail,\n    contactPhone: data.contactPhone\n  }\n};\n\nreturn finalContract;"
+      },
+      "id": "generate-final-contract",
+      "name": "Generate Final Contract",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Validate Contract Input": {
+      "main": [
+        [
+          {
+            "node": "Generate Contract Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Contract Template": {
+      "main": [
+        [
+          {
+            "node": "CSLB Compliance Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSLB Compliance Check": {
+      "main": [
+        [
+          {
+            "node": "Generate Final Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-01-15T10:00:00.000Z",
+  "versionId": "1"
+} 

@@ -1,0 +1,994 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "functionCode": "// Enhanced webhook validation with speech processing\nconst webhookData = $json;\nconst callSid = webhookData.CallSid;\nconst callerPhone = webhookData.From;\nconst speechResult = webhookData.SpeechResult;\n\n// Validate required fields\nconst required = ['CallSid', 'From', 'SpeechResult', 'To'];\nconst missing = required.filter(field => !webhookData[field]);\n\nif (missing.length > 0) {\n  return {\n    error: 'INVALID_WEBHOOK',\n    message: `Missing fields: ${missing.join(', ')}`,\n    callSid: callSid\n  };\n}\n\n// Validate CallSid format\nif (!callSid.match(/^CA[a-zA-Z0-9]{32}$/)) {\n  return {\n    error: 'INVALID_CALLSID',\n    message: 'Invalid CallSid format',\n    callSid: callSid\n  };\n}\n\n// Validate phone number format\nif (!callerPhone.match(/^\\+[1-9]\\d{1,14}$/)) {\n  return {\n    error: 'INVALID_PHONE',\n    message: 'Invalid phone number format',\n    callerPhone: callerPhone\n  };\n}\n\nreturn {\n  isValid: true,\n  webhookData: webhookData,\n  callSid: callSid,\n  callerPhone: callerPhone,\n  speechResult: speechResult,\n  // Preserve existing fields\n  timestamp: webhookData.timestamp,\n  callerID: callerPhone,\n  callerName: webhookData.callerName,\n  phone: callerPhone,\n  language: webhookData.language,\n  is_Repeat: webhookData.is_Repeat,\n  intent: webhookData.intent,\n  paymentTerms: webhookData.paymentTerms,\n  projectSummary: webhookData.projectSummary,\n  smsSent: webhookData.smsSent,\n  fullTranscript: webhookData.fullTranscript\n};"
+      },
+      "id": "335c9356-6711-42ea-82c6-9264d9950028",
+      "name": "Enhanced Webhook Validation",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        380,
+        -360
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// OpenAI Speech Processing Integration\nconst speechResult = $json.speechResult;\nconst callSid = $json.callSid;\n\nif (!speechResult) {\n  return {\n    error: 'NO_SPEECH',\n    message: 'No speech detected',\n    callSid: callSid\n  };\n}\n\nconst systemPrompt = `You are a construction contract specialist. Extract project metadata from voice messages into structured JSON. Only return valid JSON, no explanations.\n\nRequired fields to extract:\n- business_name: Company name (string)\n- project_type: Type of project (string)\n- project_address: Full address (string)\n- scope: Project description (string)\n- budget: Total cost (string with $)\n- payment_terms: Payment structure (string)\n- materials_by: \"client\" or \"contractor\" (string)\n- license_number: GC license if mentioned (string or null)\n- start_date: Project start date (string or null)\n- end_date: Project end date (string or null)\n- preferred_contact_method: \"SMS\" or \"email\" (string or null)\n\nRules:\n- If field not mentioned, use null\n- Keep original wording for addresses and scope\n- Extract dollar amounts as \"$X,XXX\" format\n- Payment terms as \"X%/Y%/Z% split\" or \"monthly\" etc.\n- Dates as \"Month Day\" or \"Month Year\" format`;\n\nconst userPrompt = `Extract project metadata from this voice message:\n\n\"${speechResult}\"\n\nReturn only valid JSON with the required fields.`;\n\nreturn {\n  systemPrompt,\n  userPrompt,\n  temperature: 0.1,\n  maxTokens: 500,\n  speechResult: speechResult,\n  callSid: callSid,\n  // Preserve existing data\n  ...$json\n};"
+      },
+      "id": "571513df-e3b4-4dee-a51a-ec576e1f7660",
+      "name": "Speech Processing",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        580,
+        -340
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4",
+        "options": {},
+        "requestOptions": {}
+      },
+      "id": "23ffc45c-8068-47ff-affb-f503d84cfd20",
+      "name": "OpenAI Extraction",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        540,
+        -520
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Enhanced Follow-Up Logic with existing workflow integration\nconst extractedData = $json.message.content;\nconst speechResult = $json.speechResult;\nconst callSid = $json.callSid;\n\n// Parse OpenAI response\nlet parsedData;\ntry {\n  parsedData = JSON.parse(extractedData);\n} catch (error) {\n  return {\n    error: 'PARSE_ERROR',\n    message: 'Failed to parse OpenAI response',\n    originalResponse: extractedData,\n    callSid: callSid\n  };\n}\n\n// Check for missing fields\nconst missingFields = [];\n\nif (!parsedData.business_name) missingFields.push('business_name');\nif (!parsedData.project_type) missingFields.push('project_type');\nif (!parsedData.project_address) missingFields.push('project_address');\nif (!parsedData.budget) missingFields.push('budget');\nif (!parsedData.payment_terms) missingFields.push('payment_terms');\nif (!parsedData.start_date) missingFields.push('start_date');\nif (!parsedData.preferred_contact_method) missingFields.push('preferred_contact_method');\n\n// Smart follow-up questions\nconst followUpQuestions = {\n  business_name: \"What's the name of your business?\",\n  project_type: \"What type of project is this? (e.g., kitchen remodel, bathroom renovation, deck build)\",\n  project_address: \"What's the project address?\",\n  budget: \"What's the total budget for this project?\",\n  payment_terms: \"How would you like to structure the payments? (e.g., 50% upfront, 50% on completion)\",\n  start_date: \"When would you like to start this project?\",\n  preferred_contact_method: \"What's the best way to get the contract to you — text or email?\"\n};\n\n// Determine if we need follow-up\nif (missingFields.length > 0) {\n  const nextField = missingFields[0];\n  return {\n    hasFollowUp: true,\n    question: followUpQuestions[nextField],\n    missingField: nextField,\n    remainingFields: missingFields.slice(1),\n    extractedData: parsedData,\n    conversationState: 'follow_up',\n    callSid: callSid,\n    // Map to existing workflow fields\n    projectType: parsedData.project_type,\n    address: parsedData.project_address,\n    startDate: parsedData.start_date,\n    budget: parsedData.budget,\n    clientName: parsedData.business_name,\n    projectAddress: parsedData.project_address,\n    endDate: parsedData.end_date,\n    scopeOfWork: parsedData.scope,\n    paymentTerms: parsedData.payment_terms,\n    materialsProvidedBy: parsedData.materials_by,\n    // Preserve existing data\n    ...$json\n  };\n}\n\nreturn {\n  hasFollowUp: false,\n  isComplete: true,\n  extractedData: parsedData,\n  conversationState: 'complete',\n  callSid: callSid,\n  // Map to existing workflow fields\n  projectType: parsedData.project_type,\n  address: parsedData.project_address,\n  startDate: parsedData.start_date,\n  budget: parsedData.budget,\n  clientName: parsedData.business_name,\n  projectAddress: parsedData.project_address,\n  endDate: parsedData.end_date,\n  scopeOfWork: parsedData.scope,\n  paymentTerms: parsedData.payment_terms,\n  materialsProvidedBy: parsedData.materials_by,\n  // Preserve existing data\n  ...$json\n};"
+      },
+      "id": "8074169c-9264-46bf-939e-bfacf43db280",
+      "name": "Enhanced Follow-Up Logic",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Enhanced Caller Lookup with phone normalization\nconst callerPhone = $json.callerPhone;\nconst callSid = $json.callSid;\n\n// Phone number normalization function\nconst normalizePhoneNumber = (phone) => {\n  if (!phone) return null;\n  \n  let normalized = phone.replace(/[^\\d+]/g, '');\n  \n  if (!normalized.startsWith('+')) {\n    if (normalized.length === 10) {\n      normalized = '+1' + normalized;\n    } else if (normalized.length === 11 && normalized.startsWith('1')) {\n      normalized = '+' + normalized;\n    }\n  }\n  \n  const e164Pattern = /^\\+[1-9]\\d{1,14}$/;\n  return e164Pattern.test(normalized) ? normalized : null;\n};\n\nconst normalizedPhone = normalizePhoneNumber(callerPhone);\n\nif (!normalizedPhone) {\n  return {\n    error: 'INVALID_PHONE_NUMBER',\n    message: 'Phone number format is invalid',\n    originalPhone: callerPhone,\n    callSid: callSid\n  };\n}\n\n// Get caller directory data from previous node\nconst callerDirectory = $json.data || [];\n\n// Find matching caller with multiple format support\nconst findCaller = (phoneNumber) => {\n  return callerDirectory.find(caller => {\n    const callerPhone = caller[0]; // phone_number column\n    if (!callerPhone) return false;\n    \n    const formats = [\n      phoneNumber,\n      phoneNumber.replace('+1', ''),\n      '+1' + phoneNumber.replace('+1', ''),\n      phoneNumber.replace('+', ''),\n      '+' + phoneNumber.replace('+', '')\n    ];\n    \n    return formats.includes(callerPhone);\n  });\n};\n\nconst existingCaller = findCaller(normalizedPhone);\n\nif (existingCaller) {\n  return {\n    isReturningCaller: true,\n    callerData: {\n      phone_number: existingCaller[0],\n      business_name: existingCaller[1],\n      contact_email: existingCaller[2],\n      contact_method: existingCaller[3],\n      is_repeat: true,\n      last_contact_date: existingCaller[5],\n      created_date: existingCaller[6],\n      call_count: parseInt(existingCaller[7]) || 1\n    },\n    conversationCues: {\n      welcomeMessage: `Welcome back! Should we still send this to ${existingCaller[1]}?`,\n      contactConfirmation: `Still OK to send the contract to ${existingCaller[3]}?`,\n      businessName: existingCaller[1],\n      preferredContact: existingCaller[3]\n    },\n    lookupInfo: {\n      originalPhone: callerPhone,\n      normalizedPhone: normalizedPhone,\n      callSid: callSid,\n      lookupTimestamp: new Date().toISOString()\n    },\n    // Map to existing workflow fields\n    name: existingCaller[1],\n    is_Repeat: 'Yes',\n    // Preserve existing data\n    ...$json\n  };\n} else {\n  return {\n    isReturningCaller: false,\n    callerData: {\n      phone_number: normalizedPhone,\n      business_name: null,\n      contact_email: null,\n      contact_method: null,\n      is_repeat: false,\n      last_contact_date: new Date().toISOString().split('T')[0],\n      created_date: new Date().toISOString().split('T')[0],\n      call_count: 1\n    },\n    conversationCues: {\n      welcomeMessage: \"What's the name of your business?\",\n      contactQuestion: \"What's the best way to get this to you — text or email?\",\n      businessName: null,\n      preferredContact: null\n    },\n    lookupInfo: {\n      originalPhone: callerPhone,\n      normalizedPhone: normalizedPhone,\n      callSid: callSid,\n      lookupTimestamp: new Date().toISOString()\n    },\n    // Map to existing workflow fields\n    name: null,\n    is_Repeat: 'No',\n    // Preserve existing data\n    ...$json\n  };\n}"
+      },
+      "id": "11464c98-582f-480f-bf82-e10c8b40a970",
+      "name": "Enhanced Caller Lookup",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1860,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "sheetId": "122w46mkzpgbK-7z4GUnwZ87q18eUXQhK9IDoElv4_88",
+        "range": "CallerDirectory!A:H",
+        "options": {}
+      },
+      "id": "00237ec2-5661-437f-bf93-23f6189457eb",
+      "name": "Enhanced Caller Directory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [
+        1620,
+        0
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "BaM9ecgM7tTRQieT",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Enhanced Caller Update Logic\nconst callerData = $json.callerData;\nconst extractedData = $json.extractedData;\nconst callSid = $json.callSid;\n\n// Data sanitization functions\nconst sanitizeData = {\n  phoneNumber: (phone) => {\n    if (!phone) return null;\n    return phone.replace(/[^\\d+]/g, '').replace(/^(\\d{10})$/, '+1$1').replace(/^(\\d{11})$/, '+$1');\n  },\n  \n  businessName: (name) => {\n    if (!name) return null;\n    return name.trim().replace(/\\s+/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase());\n  },\n  \n  contactEmail: (email) => {\n    if (!email) return null;\n    return email.trim().toLowerCase();\n  },\n  \n  contactMethod: (method) => {\n    if (!method) return null;\n    const normalized = method.toLowerCase().trim();\n    return ['sms', 'email'].includes(normalized) ? normalized : null;\n  }\n};\n\n// Prepare update data\nconst today = new Date().toISOString().split('T')[0];\n\nconst updateData = {\n  phone_number: sanitizeData.phoneNumber(callerData.phone_number),\n  business_name: sanitizeData.businessName(callerData.business_name || extractedData.business_name),\n  contact_email: sanitizeData.contactEmail(callerData.contact_email || extractedData.contact_email),\n  contact_method: sanitizeData.contactMethod(callerData.contact_method || extractedData.preferred_contact_method),\n  is_repeat: true,\n  last_contact_date: today,\n  created_date: callerData.created_date || today,\n  call_count: (parseInt(callerData.call_count) || 0) + 1\n};\n\nreturn {\n  updateData,\n  callSid: callSid,\n  timestamp: new Date().toISOString(),\n  // Preserve existing data\n  ...$json\n};"
+      },
+      "id": "e6b48646-bf93-498f-86e8-fba4d84fb458",
+      "name": "Enhanced Caller Update",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2080,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": "CallerDirectory",
+        "options": {}
+      },
+      "id": "da1d9319-8ffa-455c-827a-23c9b9eb577e",
+      "name": "Update Caller Directory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2300,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json[\"isReturningCaller\"]}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "49b19676-9808-4391-a0fb-4a4970a51d1e",
+      "name": "Enhanced: Repeat Caller Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Enhanced Twilio Response Generation\nconst conversationState = $json.conversationState;\nconst followUpQuestion = $json.question;\nconst callerInfo = $json.callerInfo;\nconst extractedData = $json.extractedData;\nconst hasFollowUp = $json.hasFollowUp;\nconst isReturningCaller = $json.isReturningCaller;\n\n// Base TwiML template\nconst createTwiML = (message, gatherOptions = {}) => {\n  const defaultGather = {\n    input: 'speech',\n    timeout: 10,\n    speechTimeout: 'auto',\n    action: '/webhook/process-speech',\n    method: 'POST'\n  };\n  \n  const gather = { ...defaultGather, ...gatherOptions };\n  \n  return `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response>\n  <Say voice=\"alice\">${message}</Say>\n  <Gather input=\"${gather.input}\" \n          timeout=\"${gather.timeout}\" \n          speechTimeout=\"${gather.speechTimeout}\"\n          action=\"${gather.action}\" \n          method=\"${gather.method}\">\n    <Say voice=\"alice\">I didn't catch that. Could you repeat?</Say>\n  </Gather>\n  <Say voice=\"alice\">Thanks for calling. We'll follow up with you soon.</Say>\n  <Hangup/>\n</Response>`;\n};\n\n// Response templates for different scenarios\nconst responseTemplates = {\n  newCallerGreeting: () => {\n    const message = `Hi! I'm here to help you generate a construction contract. ${callerInfo?.welcomeMessage || \"What's the name of your business?\"}`;\n    return createTwiML(message);\n  },\n  \n  returningCallerGreeting: () => {\n    const message = callerInfo?.welcomeMessage || \"Welcome back! How can I help you today?\";\n    return createTwiML(message);\n  },\n  \n  followUpQuestion: () => {\n    const message = followUpQuestion || \"Could you provide more details about your project?\";\n    return createTwiML(message);\n  },\n  \n  completion: () => {\n    const projectType = extractedData?.project_type || 'project';\n    const message = `Perfect! I've got all the details for your ${projectType} project. I'll generate the contract and send it to you right away. Thanks for calling!`;\n    return createTwiML(message, { action: '/webhook/end-call' });\n  },\n  \n  error: (errorMessage = \"I'm having trouble processing that. Let me start over.\") => {\n    return createTwiML(errorMessage, { action: '/webhook/restart' });\n  }\n};\n\n// Determine which template to use\nlet response;\nif (hasFollowUp) {\n  response = responseTemplates.followUpQuestion();\n} else if (isReturningCaller) {\n  response = responseTemplates.returningCallerGreeting();\n} else if (conversationState === 'complete') {\n  response = responseTemplates.completion();\n} else if (conversationState === 'error') {\n  response = responseTemplates.error();\n} else {\n  response = responseTemplates.newCallerGreeting();\n}\n\nreturn {\n  twiML: response,\n  conversationState,\n  callerInfo,\n  followUpQuestion,\n  hasFollowUp,\n  isReturningCaller,\n  // Preserve existing data\n  ...$json\n};"
+      },
+      "id": "2d0d5b7d-5c15-40fa-8481-5e2e1d8abfa1",
+      "name": "Enhanced Twilio Response1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.twiML }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/xml"
+              }
+            ]
+          }
+        }
+      },
+      "id": "cb6b7061-2169-4baa-b190-f243aa8a8cc9",
+      "name": "Enhanced Webhook Response1",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1220,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Enhanced Notification Output\nconst extractedData = $json.extractedData;\nconst callerData = $json.callerData;\nconst callSid = $json.callSid;\nconst isReturningCaller = $json.isReturningCaller;\n\n// Format notification payload\nconst notificationPayload = {\n  callSid: callSid,\n  timestamp: new Date().toISOString(),\n  caller: {\n    phone: callerData?.phone_number,\n    business: callerData?.business_name,\n    contactMethod: callerData?.contact_method,\n    isReturning: isReturningCaller\n  },\n  project: {\n    type: extractedData?.project_type,\n    address: extractedData?.project_address,\n    scope: extractedData?.scope,\n    budget: extractedData?.budget,\n    paymentTerms: extractedData?.payment_terms,\n    materialsBy: extractedData?.materials_by,\n    startDate: extractedData?.start_date,\n    endDate: extractedData?.end_date\n  },\n  compliance: {\n    licenseNumber: extractedData?.license_number,\n    warnings: []\n  }\n};\n\n// Add compliance warnings\nif (!extractedData?.license_number && extractedData?.business_name) {\n  notificationPayload.compliance.warnings.push(\"Missing: GC License Number\");\n}\n\nif (extractedData?.payment_terms && extractedData.payment_terms.includes(\"50%\") && extractedData.payment_terms.includes(\"upfront\")) {\n  notificationPayload.compliance.warnings.push(\"⚠️ CSLB payment structure may be unclear\");\n}\n\n// Format SMS summary\nconst smsSummary = `New Contract Request\\n\\nBusiness: ${callerData?.business_name || 'Not provided'}\\nProject: ${extractedData?.project_type || 'Not specified'}\\nAddress: ${extractedData?.project_address || 'Not provided'}\\nBudget: ${extractedData?.budget || 'Not specified'}\\nContact: ${callerData?.contact_method || 'Not specified'}\\n\\nCall SID: ${callSid}`;\n\n// Format email summary\nconst emailSummary = `New Construction Contract Request\\n\\nCall Details:\\n- Call SID: ${callSid}\\n- Timestamp: ${new Date().toLocaleString()}\\n- Caller Phone: ${callerData?.phone_number}\\n\\nBusiness Information:\\n- Business Name: ${callerData?.business_name || 'Not provided'}\\n- Contact Method: ${callerData?.contact_method || 'Not specified'}\\n- Returning Customer: ${isReturningCaller ? 'Yes' : 'No'}\\n\\nProject Details:\\n- Project Type: ${extractedData?.project_type || 'Not specified'}\\n- Address: ${extractedData?.project_address || 'Not provided'}\\n- Scope: ${extractedData?.scope || 'Not provided'}\\n- Budget: ${extractedData?.budget || 'Not specified'}\\n- Payment Terms: ${extractedData?.payment_terms || 'Not specified'}\\n- Materials By: ${extractedData?.materials_by || 'Not specified'}\\n- Start Date: ${extractedData?.start_date || 'Not specified'}\\n- End Date: ${extractedData?.end_date || 'Not specified'}\\n\\nCompliance:\\n- License Number: ${extractedData?.license_number || 'Not provided'}\\n- Warnings: ${notificationPayload.compliance.warnings.join(', ') || 'None'}\\n\\nNext Steps:\\n1. Review project details\\n2. Generate contract document\\n3. Send to customer via ${callerData?.contact_method || 'preferred method'}\\n4. Follow up within 24 hours`;\n\nreturn {\n  notificationPayload,\n  smsSummary,\n  emailSummary,\n  callSid: callSid,\n  timestamp: new Date().toISOString(),\n  // Preserve existing data\n  ...$json\n};"
+      },
+      "id": "8e60c245-01e3-4fe8-9281-d220f576717f",
+      "name": "Enhanced Notification Output1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "Send Notifications",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "bffa3311-d83b-4ab2-8fee-5a17bc5ce5c5",
+      "name": "Execute: Send Notification (New)1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        3480,
+        -500
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.map(item => {\n  const { projectType, address, startDate, budget } = item.json;\n  const parts = [];\n\n  if (projectType) parts.push(projectType.charAt(0).toUpperCase() + projectType.slice(1));\n  if (address) parts.push(`at ${address}`);\n  if (startDate) parts.push(`starting ${startDate}`);\n  if (budget) parts.push(`budget ${budget}`);\n\n  item.json.projectSummary = parts.join(', ') + '.';\n  return item;\n});\n"
+      },
+      "name": "Generate Project Summary1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2600,
+        -500
+      ],
+      "id": "18d06815-0f0b-44aa-8762-fce8f639e51b"
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.map(item => {\n  const required = item.json.requiredFields || [\n    'projectType',\n    'address',\n    'budget',\n    'startDate'\n  ];\n\n  const missing = required.filter(field => {\n    const val = item.json[field];\n    return val === undefined || val === null || val === '';\n  });\n\n  if (missing.length > 0) {\n    const formatted = missing\n      .map(f => `• ${f.replace(/([A-Z])/g, ' $1')}`)\n      .join('\\n');\n    item.json.missingFieldWarning = `⚠️ We're still missing the following details:\\n\\n${formatted}`;\n  } else {\n    item.json.missingFieldWarning = '';\n  }\n\n  return item;\n});\n"
+      },
+      "name": "Generate Missing Field Warning1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2820,
+        -500
+      ],
+      "id": "bd169c30-ac66-41e7-a4ce-ca6e407989bb"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "rewrittenMessage",
+              "value": "={{ $json.choices[0].message.content }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set Rewritten Message2",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        3260,
+        -500
+      ],
+      "id": "f1d03aa7-c6b4-44e1-b976-9cf6e04f8185"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$vars.BASE_URL}}/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-3.5-turbo\",\n  \"temperature\": 0.7,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You rewrite text in a friendlier, more efficient tone.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Please reschedule our meeting to Tuesday or Wednesday and send me the Zoom link.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3040,
+        -500
+      ],
+      "id": "32b1a6d4-2272-4b18-bba5-bfb06626e395",
+      "name": "Response Rewrite - HTTP Request1",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qakFx7MXcOFFxUoX",
+          "name": "Header Auth account"
+        },
+        "openAiApi": {
+          "id": "aEJlE2MkXmfKpkAW",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": "a52IrheKXm7My6vC",
+        "options": {}
+      },
+      "id": "d16fe9ba-eb7a-42d2-b39d-13abbcf07c83",
+      "name": "Execute: Parse Contract",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        1940,
+        -500
+      ],
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = items[0].json;\n\nconst {\n  projectType,\n  budget,\n  clientName,\n  projectAddress,\n  startDate,\n  endDate,\n  scopeOfWork,\n  paymentTerms,\n  materialsProvidedBy\n} = input;\n\nreturn [\n  {\n    json: {\n      compliancePrompt: `You are an expert in California construction law.\n\nGiven the following contract details, check whether this contract complies with CSLB §7159 (Home Improvement Contract Requirements). List any **missing or non-compliant elements** clearly and concisely. Only respond with what's missing or non-compliant.\n\nDetails:\n- Project Type: ${projectType || \"Not provided\"}\n- Contract Price: ${budget || \"Not provided\"}\n- Client Name: ${clientName || \"Not provided\"}\n- Property Address: ${projectAddress || \"Not provided\"}\n- Start Date: ${startDate || \"Not provided\"}\n- End Date: ${endDate || \"Not provided\"}\n- Scope of Work: ${scopeOfWork || \"Not provided\"}\n- Payment Terms: ${paymentTerms || \"Not provided\"}\n- Materials Provided By: ${materialsProvidedBy || \"Not provided\"}\n\nRespond with:\n\"Missing for a Home Improvement Contract:\"\n- [bullet list of missing items or formatting issues]`\n    }\n  }\n];\n"
+      },
+      "name": "Build Compliance Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2380,
+        -500
+      ],
+      "id": "ff8e99b3-59d8-4359-8963-abf628e4b5de"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const caller = item.json.caller || 'Unknown caller';\nconst project = item.json.projectType || 'a project';\nconst property = item.json.propertyType || 'a property';\nconst category = item.json.workCategory || 'general construction';\nconst address = item.json.address || 'an unspecified address';\nconst budget = item.json.budget ? `$${item.json.budget}` : 'an unspecified amount';\nconst start = item.json.startDate || 'an unspecified start date';\n\nreturn {\n  json: {\n    ...item.json,\n    summary: `Caller ${caller} wants to ${project} on a ${property} (${category}) at ${address} for ${budget}, starting in ${start}.`\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        -500
+      ],
+      "id": "3fa553d1-23bf-4b2d-bd94-a1c0be2123ae",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "KLXj19HjFkOnYUuh",
+          "mode": "list",
+          "cachedResultName": "Caller Directory subflow"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1060,
+        -600
+      ],
+      "id": "0351ee75-d2f8-4f43-b6fa-6b1c412107e9",
+      "name": "Execute callerDirectory subflow"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "qM1R5NVMVDD9NghD",
+          "mode": "list",
+          "cachedResultName": "Speech Processing subflow"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        -600
+      ],
+      "id": "adf4e719-a2e5-4b34-ba4b-92ce82eddc1d",
+      "name": "Execute speechProcessing subflow"
+    },
+    {
+      "parameters": {
+        "functionCode": "const item = items[0];\n\nitem.BASE_URL = $vars.BASE_URL;\nitem.SHEET_ID = $vars.SHEET_ID;\nitem.TWILIO_PHONE_NUMBER = $vars.TWILIO_PHONE_NUMBER;\nitem.BBP_PHONE_NUMBER = $vars.BBP_PHONE_NUMBER;\nitem.ENABLE_SMS = $vars.ENABLE_SMS;\nitem.ENABLE_SHEETS_LOGGING = $vars.ENABLE_SHEETS_LOGGING;\nitem.IS_SIMULATION_MODE = $vars.IS_SIMULATION_MODE;\nitem.ADMIN_EMAIL = $vars.ADMIN_EMAIL;\nitem.ADMIN_PHONE = $vars.ADMIN_PHONE;\n\nreturn [item];\n"
+      },
+      "id": "a1adabfa-a1a6-4b67-af1c-8b39aefb7b7e",
+      "name": "Load ENV Vars (Post-Webhook)1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        200,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"timestamp\": \"Monday, 7:30 PM, 07-18-2025\",\n  \"callerID\": \"+15551234567\",\n  \"callerName\": \"John Doe\",\n  \"phone\": \"+15551234567\",\n  \"language\": \"English\",\n  \"is_Repeat\": \"No\",\n  \"intent\": \"Compliance Inquiry\",\n  \"paymentTerms\": \"Invoice Number | Due Date | Amount Due | Payment Method | Status\\nINV-1001 | 2025-08-01 | $1,200.00 | Credit Card | Pending\",\n  \"projectSummary\": \"Called to confirm contract compliance timeline.\",\n  \"smsSent\": \"No\",\n  \"fullTranscript\": \"Agent: Hello...\\nCustomer: Hi...\\nAgent: Great, ...\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        200,
+        -600
+      ],
+      "id": "e083037f-970b-4461-a2c5-34e6f3f29da6",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "com.twilio.voice.insights.call-summary.complete"
+        ]
+      },
+      "type": "n8n-nodes-base.twilioTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        -600
+      ],
+      "id": "ece03946-2e44-448b-a552-632644a5ee75",
+      "name": "Twilio Trigger1",
+      "webhookId": "1a0ab43e-69c0-48a0-bceb-592bf92c9823",
+      "credentials": {
+        "twilioApi": {
+          "id": "ygeRXvfkZaL3xp5P",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "<Response>\n  <Gather input=\"speech dtmf\" timeout=\"5\" numDigits=\"1\"\n      language=\"en-US\" action=\"/webhook/handle-intent\" method=\"POST\">\n    <Say>Thank you for calling the Contract Generator. Tell us about your new project and we will generate your CSLB compliant contract.</Say>\n  </Gather>\n  <Say>We didn’t receive any input. Goodbye.</Say>\n</Response>",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/xml"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -40,
+        -600
+      ],
+      "id": "1bbed8db-75d4-4ee0-9ad1-d1df99e68aa7",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "workflowId": "a52IrheKXm7My6vC",
+        "options": {}
+      },
+      "id": "d13e38b4-4040-458f-b5d5-6a6a4500305a",
+      "name": "Execute: Parse Contract1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        2680,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "Send Notifications",
+        "options": {}
+      },
+      "id": "a453a316-4499-460f-a3b1-645fe54e70af",
+      "name": "Execute: Send Notification (Repeat)1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        3280,
+        -780
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": "Log to Sheets",
+        "options": {}
+      },
+      "id": "89630e23-d827-4abe-af86-d6b9844cfd62",
+      "name": "Execute: Log Call (Repeat)1",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        3500,
+        -780
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.map(item => {\n  const { projectType, address, startDate, budget } = item.json;\n  const parts = [];\n\n  if (projectType) parts.push(projectType.charAt(0).toUpperCase() + projectType.slice(1));\n  if (address) parts.push(`at ${address}`);\n  if (startDate) parts.push(`starting ${startDate}`);\n  if (budget) parts.push(`budget ${budget}`);\n\n  item.json.projectSummary = parts.join(', ') + '.';\n  return item;\n});\n"
+      },
+      "name": "Generate Project Summary",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        -780
+      ],
+      "id": "74402eca-5442-4e93-871b-046a06db65ac"
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.map(item => {\n  const required = item.json.requiredFields || [\n    'projectType',\n    'address',\n    'budget',\n    'startDate'\n  ];\n\n  const missing = required.filter(field => {\n    const val = item.json[field];\n    return val === undefined || val === null || val === '';\n  });\n\n  if (missing.length > 0) {\n    const formatted = missing\n      .map(f => `• ${f.replace(/([A-Z])/g, ' $1')}`)\n      .join('\\n');\n    item.json.missingFieldWarning = `⚠️ We're still missing the following details:\\n\\n${formatted}`;\n  } else {\n    item.json.missingFieldWarning = '';\n  }\n\n  return item;\n});\n"
+      },
+      "name": "Generate Missing Field Warning",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2620,
+        -780
+      ],
+      "id": "85eb883b-d4ae-4321-bba3-daaac23c3610"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "rewrittenMessage",
+              "value": "={{ $json.choices[0].message.content }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set Rewritten Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        3060,
+        -780
+      ],
+      "id": "281e72a7-f917-46b1-a02e-fda6bebf7e0b"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$vars.BASE_URL}}/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-3.5-turbo"
+            },
+            {
+              "name": "temperature",
+              "value": "0.7"
+            },
+            {
+              "name": "messages",
+              "value": "={\n  \"model\": \"gpt-3.5-turbo\",\n  \"temperature\": 0.7,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You rewrite text in a friendlier, more efficient tone.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Please reschedule our meeting to Tuesday or Wednesday and send me the Zoom link.\"\n    }\n  ]\n}\n\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2840,
+        -780
+      ],
+      "id": "4e1ed71c-8620-4888-bccb-a21b234dd225",
+      "name": "Response Rewrite - HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "qakFx7MXcOFFxUoX",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = items[0].json;\n\nconst {\n  projectType,\n  budget,\n  clientName,\n  projectAddress,\n  startDate,\n  endDate,\n  scopeOfWork,\n  paymentTerms,\n  materialsProvidedBy\n} = input;\n\nreturn [\n  {\n    json: {\n      compliancePrompt: `You are an expert in California construction law.\n\nGiven the following contract details, check whether this contract complies with CSLB §7159 (Home Improvement Contract Requirements). List any **missing or non-compliant elements** clearly and concisely. Only respond with what's missing or non-compliant.\n\nDetails:\n- Project Type: ${projectType || \"Not provided\"}\n- Contract Price: ${budget || \"Not provided\"}\n- Client Name: ${clientName || \"Not provided\"}\n- Property Address: ${projectAddress || \"Not provided\"}\n- Start Date: ${startDate || \"Not provided\"}\n- End Date: ${endDate || \"Not provided\"}\n- Scope of Work: ${scopeOfWork || \"Not provided\"}\n- Payment Terms: ${paymentTerms || \"Not provided\"}\n- Materials Provided By: ${materialsProvidedBy || \"Not provided\"}\n\nRespond with:\n\"Missing for a Home Improvement Contract:\"\n- [bullet list of missing items or formatting issues]`\n    }\n  }\n];\n"
+      },
+      "name": "Build Compliance Prompt1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2180,
+        -780
+      ],
+      "id": "6f3eb1f8-e354-418c-92fa-6a2387cd188f"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Enhanced Webhook Validation": {
+      "main": [
+        [
+          {
+            "node": "Speech Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Speech Processing": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Extraction": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Twilio Response1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Caller Directory": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Caller Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Caller Lookup": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Caller Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Caller Update": {
+      "main": [
+        [
+          {
+            "node": "Update Caller Directory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Caller Directory": {
+      "main": [
+        [
+          {
+            "node": "Enhanced: Repeat Caller Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Follow-Up Logic": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Caller Directory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Twilio Response1": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Webhook Response1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Webhook Response1": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Notification Output1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Project Summary1": {
+      "main": [
+        [
+          {
+            "node": "Generate Missing Field Warning1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Missing Field Warning1": {
+      "main": [
+        [
+          {
+            "node": "Response Rewrite - HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Rewritten Message2": {
+      "main": [
+        [
+          {
+            "node": "Execute: Send Notification (New)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Rewrite - HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Set Rewritten Message2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Parse Contract": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Compliance Prompt": {
+      "main": [
+        [
+          {
+            "node": "Generate Project Summary1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Build Compliance Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute callerDirectory subflow": {
+      "main": [
+        []
+      ]
+    },
+    "Execute speechProcessing subflow": {
+      "main": [
+        [
+          {
+            "node": "Execute callerDirectory subflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load ENV Vars (Post-Webhook)1": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Webhook Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Load ENV Vars (Post-Webhook)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Parse Contract1": {
+      "main": [
+        [
+          {
+            "node": "Build Compliance Prompt1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute: Send Notification (Repeat)1": {
+      "main": [
+        [
+          {
+            "node": "Execute: Log Call (Repeat)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Project Summary": {
+      "main": [
+        [
+          {
+            "node": "Generate Missing Field Warning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Missing Field Warning": {
+      "main": [
+        [
+          {
+            "node": "Response Rewrite - HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Rewritten Message": {
+      "main": [
+        [
+          {
+            "node": "Execute: Send Notification (Repeat)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Rewrite - HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Set Rewritten Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Compliance Prompt1": {
+      "main": [
+        [
+          {
+            "node": "Generate Project Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Notification Output1": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Follow-Up Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced: Repeat Caller Check": {
+      "main": [
+        [
+          {
+            "node": "Execute: Parse Contract1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute: Parse Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "24b8092c-9f23-4ec5-974d-dfe9b5912469",
+  "meta": {
+    "instanceId": "9ddbf4ee29f667e3151a12ec1f06c01bbc2a151068327a86785661cb1af152a5"
+  },
+  "id": "YjkcfT3gPcZfIjD5",
+  "tags": [
+    {
+      "createdAt": "2025-07-17T04:38:25.877Z",
+      "updatedAt": "2025-07-17T04:38:25.877Z",
+      "id": "LzpMSxoPjZXnbamu",
+      "name": "/voice-intake"
+    }
+  ]
+}

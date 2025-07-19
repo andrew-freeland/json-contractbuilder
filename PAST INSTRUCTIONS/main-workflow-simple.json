@@ -1,0 +1,291 @@
+{
+  "name": "Voice Intake Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-intake"
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookData = $json;\nconst callSid = webhookData.CallSid;\nconst callerPhone = webhookData.From;\nconst speechResult = webhookData.SpeechResult;\n\nconst required = ['CallSid', 'From', 'SpeechResult', 'To'];\nconst missing = required.filter(field => !webhookData[field]);\n\nif (missing.length > 0) {\n  return {\n    error: 'INVALID_WEBHOOK',\n    message: `Missing fields: ${missing.join(', ')}`,\n    callSid: callSid\n  };\n}\n\nreturn {\n  isValid: true,\n  webhookData: webhookData,\n  callSid: callSid,\n  callerPhone: callerPhone,\n  speechResult: speechResult\n};"
+      },
+      "id": "webhook-validation",
+      "name": "Webhook Validation",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "sheetName": "CallerDirectory",
+        "range": "A:H"
+      },
+      "id": "read-caller-directory",
+      "name": "Read Caller Directory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const callerPhone = $json.callerPhone;\nconst callSid = $json.callSid;\n\nconst normalizePhoneNumber = (phone) => {\n  if (!phone) return null;\n  let normalized = phone.replace(/[^\\d+]/g, '');\n  if (!normalized.startsWith('+')) {\n    if (normalized.length === 10) {\n      normalized = '+1' + normalized;\n    } else if (normalized.length === 11 && normalized.startsWith('1')) {\n      normalized = '+' + normalized;\n    }\n  }\n  const e164Pattern = /^\\+[1-9]\\d{1,14}$/;\n  return e164Pattern.test(normalized) ? normalized : null;\n};\n\nconst normalizedPhone = normalizePhoneNumber(callerPhone);\n\nif (!normalizedPhone) {\n  return {\n    error: 'INVALID_PHONE_NUMBER',\n    message: 'Phone number format is invalid',\n    originalPhone: callerPhone,\n    callSid: callSid\n  };\n}\n\nconst callerDirectory = $json.data || [];\n\nconst findCaller = (phoneNumber) => {\n  return callerDirectory.find(caller => {\n    const callerPhone = caller[0];\n    if (!callerPhone) return false;\n    const formats = [\n      phoneNumber,\n      phoneNumber.replace('+1', ''),\n      '+1' + phoneNumber.replace('+1', ''),\n      phoneNumber.replace('+', ''),\n      '+' + phoneNumber.replace('+', '')\n    ];\n    return formats.includes(callerPhone);\n  });\n};\n\nconst existingCaller = findCaller(normalizedPhone);\n\nif (existingCaller) {\n  return {\n    isReturningCaller: true,\n    callerData: {\n      phone_number: existingCaller[0],\n      business_name: existingCaller[1],\n      contact_email: existingCaller[2],\n      contact_method: existingCaller[3],\n      is_repeat: true,\n      last_contact_date: existingCaller[5],\n      created_date: existingCaller[6],\n      call_count: parseInt(existingCaller[7]) || 1\n    },\n    conversationCues: {\n      welcomeMessage: `Welcome back! Should we still send this to ${existingCaller[1]}?`,\n      contactConfirmation: `Still OK to send the contract to ${existingCaller[3]}?`,\n      businessName: existingCaller[1],\n      preferredContact: existingCaller[3]\n    },\n    lookupInfo: {\n      originalPhone: callerPhone,\n      normalizedPhone: normalizedPhone,\n      callSid: callSid,\n      lookupTimestamp: new Date().toISOString()\n    }\n  };\n} else {\n  return {\n    isReturningCaller: false,\n    callerData: {\n      phone_number: normalizedPhone,\n      business_name: null,\n      contact_email: null,\n      contact_method: null,\n      is_repeat: false,\n      last_contact_date: new Date().toISOString().split('T')[0],\n      created_date: new Date().toISOString().split('T')[0],\n      call_count: 1\n    },\n    conversationCues: {\n      welcomeMessage: \"What's the name of your business?\",\n      contactQuestion: \"What's the best way to get this to you — text or email?\",\n      businessName: null,\n      preferredContact: null\n    },\n    lookupInfo: {\n      originalPhone: callerPhone,\n      normalizedPhone: normalizedPhone,\n      callSid: callSid,\n      lookupTimestamp: new Date().toISOString()\n    }\n  };\n}"
+      },
+      "id": "caller-lookup",
+      "name": "Caller Lookup",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const speechResult = $json.speechResult;\n\nconst systemPrompt = `You are a construction contract specialist. Extract project metadata from voice messages into structured JSON. Only return valid JSON, no explanations.\n\nRequired fields to extract:\n- business_name: Company name (string)\n- project_type: Type of project (string)\n- project_address: Full address (string)\n- scope: Project description (string)\n- budget: Total cost (string with $)\n- payment_terms: Payment structure (string)\n- materials_by: \"client\" or \"contractor\" (string)\n- license_number: GC license if mentioned (string or null)\n- start_date: Project start date (string or null)\n- end_date: Project end date (string or null)\n- preferred_contact_method: \"SMS\" or \"email\" (string or null)\n\nRules:\n- If field not mentioned, use null\n- Keep original wording for addresses and scope\n- Extract dollar amounts as \"$X,XXX\" format\n- Payment terms as \"X%/Y%/Z% split\" or \"monthly\" etc.\n- Dates as \"Month Day\" or \"Month Year\" format`;\n\nconst userPrompt = `Extract project metadata from this voice message:\n\n\"${speechResult}\"\n\nReturn only valid JSON with the required fields.`;\n\nreturn {\n  systemPrompt,\n  userPrompt,\n  temperature: 0.1,\n  maxTokens: 500,\n  speechResult: speechResult\n};"
+      },
+      "id": "openai-prompt",
+      "name": "OpenAI Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "apiKey",
+        "model": "gpt-4",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "={{ $json.systemPrompt }}"
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.userPrompt }}"
+            }
+          ]
+        },
+        "temperature": "={{ $json.temperature }}",
+        "maxTokens": "={{ $json.maxTokens }}"
+      },
+      "id": "openai-extraction",
+      "name": "OpenAI Extraction",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const extractedData = $json.message.content;\nconst speechResult = $json.speechResult;\n\nlet parsedData;\ntry {\n  parsedData = JSON.parse(extractedData);\n} catch (error) {\n  return {\n    error: 'PARSE_ERROR',\n    message: 'Failed to parse OpenAI response',\n    originalResponse: extractedData\n  };\n}\n\nconst missingFields = [];\n\nif (!parsedData.business_name) missingFields.push('business_name');\nif (!parsedData.project_type) missingFields.push('project_type');\nif (!parsedData.project_address) missingFields.push('project_address');\nif (!parsedData.budget) missingFields.push('budget');\nif (!parsedData.payment_terms) missingFields.push('payment_terms');\nif (!parsedData.start_date) missingFields.push('start_date');\nif (!parsedData.preferred_contact_method) missingFields.push('preferred_contact_method');\n\nconst followUpQuestions = {\n  business_name: \"What's the name of your business?\",\n  project_type: \"What type of project is this? (e.g., kitchen remodel, bathroom renovation, deck build)\",\n  project_address: \"What's the project address?\",\n  budget: \"What's the total budget for this project?\",\n  payment_terms: \"How would you like to structure the payments? (e.g., 50% upfront, 50% on completion)\",\n  start_date: \"When would you like to start this project?\",\n  preferred_contact_method: \"What's the best way to get the contract to you — text or email?\"\n};\n\nif (missingFields.length > 0) {\n  const nextField = missingFields[0];\n  return {\n    hasFollowUp: true,\n    question: followUpQuestions[nextField],\n    missingField: nextField,\n    remainingFields: missingFields.slice(1),\n    extractedData: parsedData,\n    conversationState: 'follow_up'\n  };\n}\n\nreturn {\n  hasFollowUp: false,\n  isComplete: true,\n  extractedData: parsedData,\n  conversationState: 'complete'\n};"
+      },
+      "id": "follow-up-logic",
+      "name": "Follow-Up Logic",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const callerData = $json.callerData;\nconst extractedData = $json.extractedData;\nconst callSid = $json.callSid;\n\nconst today = new Date().toISOString().split('T')[0];\n\nconst updateData = {\n  phone_number: callerData.phone_number,\n  business_name: callerData.business_name || extractedData.business_name,\n  contact_email: callerData.contact_email || extractedData.contact_email,\n  contact_method: callerData.contact_method || extractedData.preferred_contact_method,\n  is_repeat: true,\n  last_contact_date: today,\n  created_date: callerData.created_date || today,\n  call_count: (parseInt(callerData.call_count) || 0) + 1\n};\n\nreturn {\n  updateData,\n  callSid: callSid,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "caller-update",
+      "name": "Caller Update",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "sheetName": "CallerDirectory",
+        "columnToMatchOn": "phone_number",
+        "valueToMatchOn": "={{ $json.updateData.phone_number }}",
+        "valueInputOption": "RAW",
+        "fieldsUi": {
+          "values": [
+            {
+              "column": "phone_number",
+              "fieldValue": "={{ $json.updateData.phone_number }}"
+            },
+            {
+              "column": "business_name",
+              "fieldValue": "={{ $json.updateData.business_name }}"
+            },
+            {
+              "column": "contact_email",
+              "fieldValue": "={{ $json.updateData.contact_email }}"
+            },
+            {
+              "column": "contact_method",
+              "fieldValue": "={{ $json.updateData.contact_method }}"
+            },
+            {
+              "column": "is_repeat",
+              "fieldValue": "={{ $json.updateData.is_repeat }}"
+            },
+            {
+              "column": "last_contact_date",
+              "fieldValue": "={{ $json.updateData.last_contact_date }}"
+            },
+            {
+              "column": "created_date",
+              "fieldValue": "={{ $json.updateData.created_date }}"
+            },
+            {
+              "column": "call_count",
+              "fieldValue": "={{ $json.updateData.call_count }}"
+            }
+          ]
+        }
+      },
+      "id": "update-caller-directory",
+      "name": "Update Caller Directory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const conversationState = $json.conversationState;\nconst followUpQuestion = $json.question;\nconst callerInfo = $json.callerInfo;\nconst extractedData = $json.extractedData;\n\nconst createTwiML = (message, gatherOptions = {}) => {\n  const defaultGather = {\n    input: 'speech',\n    timeout: 10,\n    speechTimeout: 'auto',\n    action: '/webhook/process-speech',\n    method: 'POST'\n  };\n  \n  const gather = { ...defaultGather, ...gatherOptions };\n  \n  return `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response>\n  <Say voice=\"alice\">${message}</Say>\n  <Gather input=\"${gather.input}\" \n          timeout=\"${gather.timeout}\" \n          speechTimeout=\"${gather.speechTimeout}\"\n          action=\"${gather.action}\" \n          method=\"${gather.method}\">\n    <Say voice=\"alice\">I didn't catch that. Could you repeat?</Say>\n  </Gather>\n  <Say voice=\"alice\">Thanks for calling. We'll follow up with you soon.</Say>\n  <Hangup/>\n</Response>`;\n};\n\nconst responseTemplates = {\n  newCallerGreeting: () => {\n    const message = `Hi! I'm here to help you generate a construction contract. ${callerInfo.welcomeMessage}`;\n    return createTwiML(message);\n  },\n  \n  returningCallerGreeting: () => {\n    const message = callerInfo.welcomeMessage;\n    return createTwiML(message);\n  },\n  \n  followUpQuestion: () => {\n    const message = followUpQuestion;\n    return createTwiML(message);\n  },\n  \n  completion: () => {\n    const message = `Perfect! I've got all the details for your ${extractedData.project_type} project. I'll generate the contract and send it to you right away. Thanks for calling!`;\n    return createTwiML(message, { action: '/webhook/end-call' });\n  },\n  \n  error: (errorMessage = \"I'm having trouble processing that. Let me start over.\") => {\n    return createTwiML(errorMessage, { action: '/webhook/restart' });\n  }\n};\n\nlet response;\nswitch (conversationState) {\n  case 'new_caller_greeting':\n    response = responseTemplates.newCallerGreeting();\n    break;\n  case 'returning_caller_greeting':\n    response = responseTemplates.returningCallerGreeting();\n    break;\n  case 'follow_up':\n    response = responseTemplates.followUpQuestion();\n    break;\n  case 'complete':\n    response = responseTemplates.completion();\n    break;\n  case 'error':\n    response = responseTemplates.error();\n    break;\n  default:\n    response = responseTemplates.error();\n}\n\nreturn {\n  twiML: response,\n  conversationState,\n  callerInfo,\n  followUpQuestion\n};"
+      },
+      "id": "twilio-response",
+      "name": "Twilio Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.twiML }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2440, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Webhook Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Validation": {
+      "main": [
+        [
+          {
+            "node": "Read Caller Directory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Caller Directory": {
+      "main": [
+        [
+          {
+            "node": "Caller Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Caller Lookup": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Prompt": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Extraction": {
+      "main": [
+        [
+          {
+            "node": "Follow-Up Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow-Up Logic": {
+      "main": [
+        [
+          {
+            "node": "Caller Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Caller Update": {
+      "main": [
+        [
+          {
+            "node": "Update Caller Directory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Caller Directory": {
+      "main": [
+        [
+          {
+            "node": "Twilio Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio Response": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-15T10:00:00.000Z",
+  "versionId": "1"
+} 

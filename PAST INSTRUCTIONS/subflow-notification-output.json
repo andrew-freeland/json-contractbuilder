@@ -1,0 +1,25 @@
+{
+  "name": "Notification Output Subflow",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Function Node: Notification Output\nconst extractedData = $json.extractedData;\nconst callerInfo = $json.callerInfo;\nconst complianceWarnings = $json.complianceWarnings || [];\nconst callSid = $json.callSid;\nconst callerPhone = $json.callerPhone;\n\n// Generate scope summary\nconst generateScopeSummary = (data) => {\n  const scopeParts = [];\n  \n  if (data.project_type) {\n    scopeParts.push(data.project_type);\n  }\n  \n  if (data.scope) {\n    scopeParts.push(data.scope);\n  }\n  \n  if (data.materials_by) {\n    scopeParts.push(`Materials: ${data.materials_by}`);\n  }\n  \n  return scopeParts.join(' - ') || 'Scope details pending';\n};\n\n// Format the notification payload\nconst notificationPayload = {\n  business_name: extractedData.business_name || 'Unknown',\n  project_type: extractedData.project_type || 'Unknown',\n  address: extractedData.project_address || 'Address pending',\n  budget: extractedData.budget || 'Budget pending',\n  payment_terms: extractedData.payment_terms || 'Terms pending',\n  start_date: extractedData.start_date || 'Date pending',\n  contact_method: extractedData.preferred_contact_method || callerInfo?.preferredContact || 'Unknown',\n  compliance_warnings: complianceWarnings,\n  scope_summary: generateScopeSummary(extractedData),\n  caller_info: {\n    phone: callerPhone,\n    is_returning: callerInfo?.isReturningCaller || false,\n    call_sid: callSid,\n    timestamp: new Date().toISOString()\n  }\n};\n\n// Generate SMS summary\nconst generateSMSSummary = () => {\n  const parts = [];\n  \n  parts.push(`🏗️ ${notificationPayload.business_name}`);\n  parts.push(`${notificationPayload.project_type}`);\n  parts.push(`📍 ${notificationPayload.address}`);\n  parts.push(`💰 ${notificationPayload.budget}`);\n  parts.push(`📅 ${notificationPayload.start_date}`);\n  parts.push(`📱 ${notificationPayload.contact_method}`);\n  \n  if (complianceWarnings.length > 0) {\n    parts.push(`⚠️ ${complianceWarnings.join(', ')}`);\n  }\n  \n  return parts.join('\\n');\n};\n\n// Generate email subject line\nconst generateEmailSubject = () => {\n  const business = notificationPayload.business_name;\n  const project = notificationPayload.project_type;\n  const budget = notificationPayload.budget;\n  \n  return `New Contract Request: ${business} - ${project} (${budget})`;\n};\n\n// Generate email body\nconst generateEmailBody = () => {\n  return `\nNew Contract Request Received\n\nBusiness: ${notificationPayload.business_name}\nProject: ${notificationPayload.project_type}\nAddress: ${notificationPayload.address}\nBudget: ${notificationPayload.budget}\nPayment Terms: ${notificationPayload.payment_terms}\nStart Date: ${notificationPayload.start_date}\nContact Method: ${notificationPayload.contact_method}\n\nScope Summary:\n${notificationPayload.scope_summary}\n\nCaller Info:\n- Phone: ${notificationPayload.caller_info.phone}\n- Returning Caller: ${notificationPayload.caller_info.is_returning ? 'Yes' : 'No'}\n- Call ID: ${notificationPayload.caller_info.call_sid}\n\n${complianceWarnings.length > 0 ? `Compliance Warnings:\\n${complianceWarnings.join('\\n')}\\n` : ''}\n\nFull extracted data available in JSON format.\n  `.trim();\n};\n\nreturn {\n  notificationPayload,\n  smsSummary: generateSMSSummary(),\n  emailSubject: generateEmailSubject(),\n  emailBody: generateEmailBody(),\n  timestamp: new Date().toISOString(),\n  callSid: callSid\n};"
+      },
+      "id": "notification-output",
+      "name": "Notification Output",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [240, 300]
+    }
+  ],
+  "connections": {},
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["notification", "output"],
+  "triggerCount": 0,
+  "updatedAt": "2025-01-15T10:00:00.000Z",
+  "versionId": "1"
+} 

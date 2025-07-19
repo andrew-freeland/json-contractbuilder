@@ -1,0 +1,240 @@
+{
+  "name": "Main Workflow - Voice Intake Handler - Enhanced",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "com.twilio.voice.insights.call-summary.complete"
+        ]
+      },
+      "type": "n8n-nodes-base.twilioTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3360,
+        -80
+      ],
+      "id": "b2be3cc7-1b7f-4004-8674-a681d1be58aa",
+      "name": "Twilio Trigger",
+      "webhookId": "1a0ab43e-69c0-48a0-bceb-592bf92c9823",
+      "credentials": {
+        "twilioApi": {
+          "id": "ygeRXvfkZaL3xp5P",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "<Response>\n  <Gather input=\"speech dtmf\" timeout=\"5\" numDigits=\"1\"\n      language=\"en-US\" action=\"/webhook/handle-intent\" method=\"POST\">\n    <Say>Thank you for calling the Contract Generator. Tell us about your new project and we will generate your CSLB compliant contract.</Say>\n  </Gather>\n  <Say>We didn't receive any input. Goodbye.</Say>\n</Response>",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/xml"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -3140,
+        -80
+      ],
+      "id": "fa929d26-ba96-4093-afee-6946ffa5fc57",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"timestamp\": \"Monday, 7:30 PM, 07-18-2025\",\n  \"callerID\": \"+15551234567\",\n  \"callerName\": \"John Doe\",\n  \"phone\": \"+15551234567\",\n  \"language\": \"English\",\n  \"is_Repeat\": \"No\",\n  \"intent\": \"Compliance Inquiry\",\n  \"paymentTerms\": \"Invoice Number | Due Date | Amount Due | Payment Method | Status\\nINV-1001 | 2025-08-01 | $1,200.00 | Credit Card | Pending\",\n  \"projectSummary\": \"Called to confirm contract compliance timeline.\",\n  \"smsSent\": \"No\",\n  \"fullTranscript\": \"Agent: Hello...\\nCustomer: Hi...\\nAgent: Great, ...\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2900,
+        -80
+      ],
+      "id": "f847a6c1-b4b3-4e46-94ac-7a134b30b37d",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "functionCode": "const item = items[0];\n\nitem.BASE_URL = $vars.BASE_URL;\nitem.SHEET_ID = $vars.SHEET_ID;\nitem.TWILIO_PHONE_NUMBER = $vars.TWILIO_PHONE_NUMBER;\nitem.BBP_PHONE_NUMBER = $vars.BBP_PHONE_NUMBER;\nitem.ENABLE_SMS = $vars.ENABLE_SMS;\nitem.ENABLE_SHEETS_LOGGING = $vars.ENABLE_SHEETS_LOGGING;\nitem.IS_SIMULATION_MODE = $vars.IS_SIMULATION_MODE;\nitem.ADMIN_EMAIL = $vars.ADMIN_EMAIL;\nitem.ADMIN_PHONE = $vars.ADMIN_PHONE;\n\nreturn [item];\n"
+      },
+      "id": "09b81b4c-347a-42ff-b46d-178b158ef237",
+      "name": "Load ENV Vars (Post-Webhook)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Enhanced webhook validation with speech processing\nconst webhookData = $json;\nconst callSid = webhookData.CallSid;\nconst callerPhone = webhookData.From;\nconst speechResult = webhookData.SpeechResult;\n\n// Validate required fields\nconst required = ['CallSid', 'From', 'SpeechResult', 'To'];\nconst missing = required.filter(field => !webhookData[field]);\n\nif (missing.length > 0) {\n  return {\n    error: 'INVALID_WEBHOOK',\n    message: `Missing fields: ${missing.join(', ')}`,\n    callSid: callSid\n  };\n}\n\n// Validate CallSid format\nif (!callSid.match(/^CA[a-zA-Z0-9]{32}$/)) {\n  return {\n    error: 'INVALID_CALLSID',\n    message: 'Invalid CallSid format',\n    callSid: callSid\n  };\n}\n\n// Validate phone number format\nif (!callerPhone.match(/^\\+[1-9]\\d{1,14}$/)) {\n  return {\n    error: 'INVALID_PHONE',\n    message: 'Invalid phone number format',\n    callerPhone: callerPhone\n  };\n}\n\nreturn {\n  isValid: true,\n  webhookData: webhookData,\n  callSid: callSid,\n  callerPhone: callerPhone,\n  speechResult: speechResult,\n  // Preserve existing fields\n  timestamp: webhookData.timestamp,\n  callerID: callerPhone,\n  callerName: webhookData.callerName,\n  phone: callerPhone,\n  language: webhookData.language,\n  is_Repeat: webhookData.is_Repeat,\n  intent: webhookData.intent,\n  paymentTerms: webhookData.paymentTerms,\n  projectSummary: webhookData.projectSummary,\n  smsSent: webhookData.smsSent,\n  fullTranscript: webhookData.fullTranscript\n};"
+      },
+      "id": "enhanced-webhook-validation",
+      "name": "Enhanced Webhook Validation",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -2480,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// OpenAI Speech Processing Integration\nconst speechResult = $json.speechResult;\nconst callSid = $json.callSid;\n\nif (!speechResult) {\n  return {\n    error: 'NO_SPEECH',\n    message: 'No speech detected',\n    callSid: callSid\n  };\n}\n\nconst systemPrompt = `You are a construction contract specialist. Extract project metadata from voice messages into structured JSON. Only return valid JSON, no explanations.\n\nRequired fields to extract:\n- business_name: Company name (string)\n- project_type: Type of project (string)\n- project_address: Full address (string)\n- scope: Project description (string)\n- budget: Total cost (string with $)\n- payment_terms: Payment structure (string)\n- materials_by: \"client\" or \"contractor\" (string)\n- license_number: GC license if mentioned (string or null)\n- start_date: Project start date (string or null)\n- end_date: Project end date (string or null)\n- preferred_contact_method: \"SMS\" or \"email\" (string or null)\n\nRules:\n- If field not mentioned, use null\n- Keep original wording for addresses and scope\n- Extract dollar amounts as \"$X,XXX\" format\n- Payment terms as \"X%/Y%/Z% split\" or \"monthly\" etc.\n- Dates as \"Month Day\" or \"Month Year\" format`;\n\nconst userPrompt = `Extract project metadata from this voice message:\n\n\"${speechResult}\"\n\nReturn only valid JSON with the required fields.`;\n\nreturn {\n  systemPrompt,\n  userPrompt,\n  temperature: 0.1,\n  maxTokens: 500,\n  speechResult: speechResult,\n  callSid: callSid,\n  // Preserve existing data\n  ...$json\n};"
+      },
+      "id": "speech-processing",
+      "name": "Speech Processing",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -2260,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "apiKey",
+        "model": "gpt-4",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "={{ $json.systemPrompt }}"
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.userPrompt }}"
+            }
+          ]
+        },
+        "temperature": "={{ $json.temperature }}",
+        "maxTokens": "={{ $json.maxTokens }}"
+      },
+      "id": "openai-extraction",
+      "name": "OpenAI Extraction",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        -2040,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Enhanced Follow-Up Logic with existing workflow integration\nconst extractedData = $json.message.content;\nconst speechResult = $json.speechResult;\nconst callSid = $json.callSid;\n\n// Parse OpenAI response\nlet parsedData;\ntry {\n  parsedData = JSON.parse(extractedData);\n} catch (error) {\n  return {\n    error: 'PARSE_ERROR',\n    message: 'Failed to parse OpenAI response',\n    originalResponse: extractedData,\n    callSid: callSid\n  };\n}\n\n// Check for missing fields\nconst missingFields = [];\n\nif (!parsedData.business_name) missingFields.push('business_name');\nif (!parsedData.project_type) missingFields.push('project_type');\nif (!parsedData.project_address) missingFields.push('project_address');\nif (!parsedData.budget) missingFields.push('budget');\nif (!parsedData.payment_terms) missingFields.push('payment_terms');\nif (!parsedData.start_date) missingFields.push('start_date');\nif (!parsedData.preferred_contact_method) missingFields.push('preferred_contact_method');\n\n// Smart follow-up questions\nconst followUpQuestions = {\n  business_name: \"What's the name of your business?\",\n  project_type: \"What type of project is this? (e.g., kitchen remodel, bathroom renovation, deck build)\",\n  project_address: \"What's the project address?\",\n  budget: \"What's the total budget for this project?\",\n  payment_terms: \"How would you like to structure the payments? (e.g., 50% upfront, 50% on completion)\",\n  start_date: \"When would you like to start this project?\",\n  preferred_contact_method: \"What's the best way to get the contract to you — text or email?\"\n};\n\n// Determine if we need follow-up\nif (missingFields.length > 0) {\n  const nextField = missingFields[0];\n  return {\n    hasFollowUp: true,\n    question: followUpQuestions[nextField],\n    missingField: nextField,\n    remainingFields: missingFields.slice(1),\n    extractedData: parsedData,\n    conversationState: 'follow_up',\n    callSid: callSid,\n    // Map to existing workflow fields\n    projectType: parsedData.project_type,\n    address: parsedData.project_address,\n    startDate: parsedData.start_date,\n    budget: parsedData.budget,\n    clientName: parsedData.business_name,\n    projectAddress: parsedData.project_address,\n    endDate: parsedData.end_date,\n    scopeOfWork: parsedData.scope,\n    paymentTerms: parsedData.payment_terms,\n    materialsProvidedBy: parsedData.materials_by,\n    // Preserve existing data\n    ...$json\n  };\n}\n\nreturn {\n  hasFollowUp: false,\n  isComplete: true,\n  extractedData: parsedData,\n  conversationState: 'complete',\n  callSid: callSid,\n  // Map to existing workflow fields\n  projectType: parsedData.project_type,\n  address: parsedData.project_address,\n  startDate: parsedData.start_date,\n  budget: parsedData.budget,\n  clientName: parsedData.business_name,\n  projectAddress: parsedData.project_address,\n  endDate: parsedData.end_date,\n  scopeOfWork: parsedData.scope,\n  paymentTerms: parsedData.payment_terms,\n  materialsProvidedBy: parsedData.materials_by,\n  // Preserve existing data\n  ...$json\n};"
+      },
+      "id": "follow-up-logic",
+      "name": "Enhanced Follow-Up Logic",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1820,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Twilio Trigger": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Load ENV Vars (Post-Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load ENV Vars (Post-Webhook)": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Webhook Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced Webhook Validation": {
+      "main": [
+        [
+          {
+            "node": "Speech Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Speech Processing": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Extraction": {
+      "main": [
+        [
+          {
+            "node": "Enhanced Follow-Up Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "createdAt": "2025-07-17T04:38:25.877Z",
+      "updatedAt": "2025-07-17T04:38:25.877Z",
+      "id": "LzpMSxoPjZXnbamu",
+      "name": "/voice-intake"
+    }
+  ],
+  "active": false,
+  "versionId": "8425d0b1-449b-4a7f-8bb6-46881ffba73f",
+  "id": "g6MLAkqOAOSqAipC"
+} 

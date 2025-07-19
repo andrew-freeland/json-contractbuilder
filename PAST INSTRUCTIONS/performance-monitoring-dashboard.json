@@ -1,0 +1,188 @@
+{
+  "name": "Performance Monitoring Dashboard",
+  "nodes": [
+    {
+      "parameters": {
+        "functionCode": "// Performance Monitoring Data Collection\nconst executionData = $json;\nconst nodeId = executionData.nodeId;\nconst nodeName = executionData.nodeName;\nconst executionTime = executionData.executionTime;\nconst timestamp = new Date().toISOString();\n\n// Performance thresholds\nconst thresholds = {\n  responseTime: 2000, // 2 seconds\n  apiLatency: 3000,   // 3 seconds\n  memoryUsage: 100,   // 100MB\n  errorRate: 0.05     // 5%\n};\n\n// Calculate performance metrics\nconst metrics = {\n  timestamp: timestamp,\n  nodeId: nodeId,\n  nodeName: nodeName,\n  executionTime: executionTime,\n  isSlow: executionTime > thresholds.responseTime,\n  isError: !!executionData.error,\n  memoryUsage: executionData.memoryUsage || 0,\n  apiCalls: executionData.apiCalls || 0,\n  dataSize: executionData.dataSize || 0\n};\n\n// Add business metrics if available\nif (executionData.callSid) {\n  metrics.callSid = executionData.callSid;\n  metrics.callerPhone = executionData.callerPhone;\n  metrics.conversationState = executionData.conversationState;\n  metrics.hasFollowUp = executionData.hasFollowUp;\n  metrics.isReturningCaller = executionData.isReturningCaller;\n}\n\n// Add API-specific metrics\nif (executionData.openaiCall) {\n  metrics.openaiLatency = executionData.openaiLatency;\n  metrics.openaiTokens = executionData.openaiTokens;\n  metrics.openaiCost = executionData.openaiCost;\n}\n\nif (executionData.sheetsCall) {\n  metrics.sheetsLatency = executionData.sheetsLatency;\n  metrics.sheetsRows = executionData.sheetsRows;\n}\n\nreturn {\n  metrics: metrics,\n  thresholds: thresholds,\n  alerts: {\n    slowExecution: metrics.isSlow,\n    highMemory: metrics.memoryUsage > thresholds.memoryUsage,\n    apiSlow: metrics.openaiLatency > thresholds.apiLatency,\n    errorDetected: metrics.isError\n  },\n  // Preserve original data\n  ...executionData\n};"
+      },
+      "id": "performance-data-collection",
+      "name": "Performance Data Collection",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -2400,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "sheetId": "122w46mkzpgbK-7z4GUnwZ87q18eUXQhK9IDoElv4_88",
+        "range": "PerformanceMetrics!A:Z",
+        "options": {}
+      },
+      "id": "performance-metrics-sheet",
+      "name": "Performance Metrics Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 2,
+      "position": [
+        -2180,
+        -80
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "BaM9ecgM7tTRQieT",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Performance Analytics and Alerts\nconst metrics = $json.metrics;\nconst alerts = $json.alerts;\nconst thresholds = $json.thresholds;\n\n// Calculate performance trends\nconst performanceAnalysis = {\n  timestamp: metrics.timestamp,\n  nodeName: metrics.nodeName,\n  \n  // Performance indicators\n  performance: {\n    executionTime: metrics.executionTime,\n    isSlow: metrics.isSlow,\n    performanceScore: Math.max(0, 100 - (metrics.executionTime / thresholds.responseTime) * 100)\n  },\n  \n  // API performance\n  api: {\n    openaiLatency: metrics.openaiLatency || 0,\n    sheetsLatency: metrics.sheetsLatency || 0,\n    totalApiCalls: metrics.apiCalls,\n    apiScore: metrics.openaiLatency ? Math.max(0, 100 - (metrics.openaiLatency / thresholds.apiLatency) * 100) : 100\n  },\n  \n  // Resource usage\n  resources: {\n    memoryUsage: metrics.memoryUsage,\n    dataSize: metrics.dataSize,\n    resourceScore: Math.max(0, 100 - (metrics.memoryUsage / thresholds.memoryUsage) * 100)\n  },\n  \n  // Business metrics\n  business: {\n    callSid: metrics.callSid,\n    conversationState: metrics.conversationState,\n    hasFollowUp: metrics.hasFollowUp,\n    isReturningCaller: metrics.isReturningCaller\n  }\n};\n\n// Generate alerts\nconst alertMessages = [];\nif (alerts.slowExecution) {\n  alertMessages.push(`⚠️ Slow execution: ${metrics.nodeName} took ${metrics.executionTime}ms`);\n}\nif (alerts.highMemory) {\n  alertMessages.push(`⚠️ High memory usage: ${metrics.memoryUsage}MB`);\n}\nif (alerts.apiSlow) {\n  alertMessages.push(`⚠️ Slow API call: OpenAI took ${metrics.openaiLatency}ms`);\n}\nif (alerts.errorDetected) {\n  alertMessages.push(`🚨 Error detected in ${metrics.nodeName}`);\n}\n\n// Calculate overall health score\nconst healthScore = Math.round(\n  (performanceAnalysis.performance.performanceScore + \n   performanceAnalysis.api.apiScore + \n   performanceAnalysis.resources.resourceScore) / 3\n);\n\nreturn {\n  performanceAnalysis: performanceAnalysis,\n  alerts: alertMessages,\n  healthScore: healthScore,\n  isHealthy: healthScore >= 80,\n  timestamp: metrics.timestamp,\n  // Preserve original data\n  ...$json\n};"
+      },
+      "id": "performance-analytics",
+      "name": "Performance Analytics",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1960,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Dashboard Report Generation\nconst performanceAnalysis = $json.performanceAnalysis;\nconst alerts = $json.alerts;\nconst healthScore = $json.healthScore;\nconst isHealthy = $json.isHealthy;\n\n// Generate dashboard report\nconst dashboardReport = {\n  timestamp: performanceAnalysis.timestamp,\n  summary: {\n    healthScore: healthScore,\n    status: isHealthy ? '🟢 Healthy' : '🔴 Needs Attention',\n    totalAlerts: alerts.length,\n    nodeName: performanceAnalysis.nodeName\n  },\n  \n  performance: {\n    executionTime: `${performanceAnalysis.performance.executionTime}ms`,\n    performanceScore: `${performanceAnalysis.performance.performanceScore.toFixed(1)}%`,\n    isSlow: performanceAnalysis.performance.isSlow ? 'Yes' : 'No'\n  },\n  \n  api: {\n    openaiLatency: performanceAnalysis.api.openaiLatency ? `${performanceAnalysis.api.openaiLatency}ms` : 'N/A',\n    sheetsLatency: performanceAnalysis.api.sheetsLatency ? `${performanceAnalysis.api.sheetsLatency}ms` : 'N/A',\n    apiScore: `${performanceAnalysis.api.apiScore.toFixed(1)}%`,\n    totalCalls: performanceAnalysis.api.totalApiCalls\n  },\n  \n  resources: {\n    memoryUsage: `${performanceAnalysis.resources.memoryUsage}MB`,\n    dataSize: `${performanceAnalysis.resources.dataSize}KB`,\n    resourceScore: `${performanceAnalysis.resources.resourceScore.toFixed(1)}%`\n  },\n  \n  business: {\n    callSid: performanceAnalysis.business.callSid || 'N/A',\n    conversationState: performanceAnalysis.business.conversationState || 'N/A',\n    hasFollowUp: performanceAnalysis.business.hasFollowUp ? 'Yes' : 'No',\n    isReturningCaller: performanceAnalysis.business.isReturningCaller ? 'Yes' : 'No'\n  },\n  \n  alerts: alerts\n};\n\n// Generate formatted reports\nconst smsReport = `Performance Report\\n\\nHealth: ${dashboardReport.summary.status}\\nScore: ${dashboardReport.summary.healthScore}%\\nNode: ${dashboardReport.summary.nodeName}\\nExecution: ${dashboardReport.performance.executionTime}\\nAlerts: ${dashboardReport.summary.totalAlerts}`;\n\nconst emailReport = `Performance Dashboard Report\\n\\nTimestamp: ${dashboardReport.timestamp}\\nNode: ${dashboardReport.summary.nodeName}\\nHealth Score: ${dashboardReport.summary.healthScore}%\\nStatus: ${dashboardReport.summary.status}\\n\\nPerformance Metrics:\\n- Execution Time: ${dashboardReport.performance.executionTime}\\n- Performance Score: ${dashboardReport.performance.performanceScore}\\n- Slow Execution: ${dashboardReport.performance.isSlow}\\n\\nAPI Metrics:\\n- OpenAI Latency: ${dashboardReport.api.openaiLatency}\\n- Sheets Latency: ${dashboardReport.api.sheetsLatency}\\n- API Score: ${dashboardReport.api.apiScore}\\n- Total API Calls: ${dashboardReport.api.totalCalls}\\n\\nResource Usage:\\n- Memory Usage: ${dashboardReport.resources.memoryUsage}\\n- Data Size: ${dashboardReport.resources.dataSize}\\n- Resource Score: ${dashboardReport.resources.resourceScore}\\n\\nBusiness Context:\\n- Call SID: ${dashboardReport.business.callSid}\\n- Conversation State: ${dashboardReport.business.conversationState}\\n- Has Follow-up: ${dashboardReport.business.hasFollowUp}\\n- Returning Caller: ${dashboardReport.business.isReturningCaller}\\n\\nAlerts:\\n${dashboardReport.alerts.map(alert => `- ${alert}`).join('\\n')}\\n\\nRecommendations:\\n${generateRecommendations(dashboardReport)}`;\n\nfunction generateRecommendations(report) {\n  const recommendations = [];\n  \n  if (report.performance.isSlow === 'Yes') {\n    recommendations.push('- Optimize node execution time');\n  }\n  if (parseFloat(report.api.apiScore) < 80) {\n    recommendations.push('- Investigate API latency issues');\n  }\n  if (parseFloat(report.resources.resourceScore) < 80) {\n    recommendations.push('- Monitor memory usage');\n  }\n  if (report.alerts.length > 0) {\n    recommendations.push('- Address active alerts');\n  }\n  \n  return recommendations.length > 0 ? recommendations.join('\\n') : '- System performing well';\n}\n\nreturn {\n  dashboardReport: dashboardReport,\n  smsReport: smsReport,\n  emailReport: emailReport,\n  timestamp: performanceAnalysis.timestamp,\n  // Preserve original data\n  ...$json\n};"
+      },
+      "id": "dashboard-report-generation",
+      "name": "Dashboard Report Generation",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1740,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json[\"dashboardReport\"][\"summary\"][\"healthScore\"]}}",
+              "operation": "smaller",
+              "value2": 80
+            }
+          ]
+        }
+      },
+      "id": "health-check-alert",
+      "name": "Health Check Alert",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -1520,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "to": "={{ $vars.ADMIN_PHONE }}",
+        "message": "={{ $json.smsReport }}",
+        "options": {}
+      },
+      "id": "send-sms-alert",
+      "name": "Send SMS Alert",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        -1300,
+        -40
+      ],
+      "credentials": {
+        "twilioApi": {
+          "id": "ygeRXvfkZaL3xp5P",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "to": "={{ $vars.ADMIN_EMAIL }}",
+        "subject": "Performance Alert - n8n Workflow",
+        "message": "={{ $json.emailReport }}",
+        "options": {}
+      },
+      "id": "send-email-alert",
+      "name": "Send Email Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [
+        -1300,
+        -120
+      ]
+    }
+  ],
+  "connections": {
+    "Performance Data Collection": {
+      "main": [
+        [
+          {
+            "node": "Performance Metrics Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Performance Metrics Sheet": {
+      "main": [
+        [
+          {
+            "node": "Performance Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Performance Analytics": {
+      "main": [
+        [
+          {
+            "node": "Dashboard Report Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dashboard Report Generation": {
+      "main": [
+        [
+          {
+            "node": "Health Check Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health Check Alert": {
+      "main": [
+        [
+          {
+            "node": "Send SMS Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+} 

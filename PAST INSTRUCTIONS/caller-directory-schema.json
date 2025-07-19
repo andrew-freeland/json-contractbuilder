@@ -1,0 +1,98 @@
+{
+  "title": "CallerDirectory Google Sheet Schema",
+  "description": "Schema for tracking caller identity, contact preferences, and repeat status",
+  "sheetName": "CallerDirectory",
+  "columns": [
+    {
+      "name": "phone_number",
+      "type": "string",
+      "format": "E.164",
+      "pattern": "^\\+[1-9]\\d{1,14}$",
+      "required": true,
+      "description": "Caller's phone number in E.164 format (e.g., +14155552671)",
+      "example": "+14155552671"
+    },
+    {
+      "name": "business_name",
+      "type": "string",
+      "maxLength": 100,
+      "required": true,
+      "description": "Name of the caller's business",
+      "example": "Rednic Construction"
+    },
+    {
+      "name": "contact_email",
+      "type": "string",
+      "format": "email",
+      "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+      "required": false,
+      "description": "Caller's email address for contract delivery",
+      "example": "mike@rednic.com"
+    },
+    {
+      "name": "contact_method",
+      "type": "string",
+      "enum": ["sms", "email"],
+      "required": true,
+      "description": "Preferred contact method for contract delivery",
+      "example": "email"
+    },
+    {
+      "name": "is_repeat",
+      "type": "boolean",
+      "required": true,
+      "description": "Whether this is a returning caller",
+      "example": true
+    },
+    {
+      "name": "last_contact_date",
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "required": true,
+      "description": "Date of last contact in ISO format (YYYY-MM-DD)",
+      "example": "2025-01-15"
+    },
+    {
+      "name": "created_date",
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "required": true,
+      "description": "Date when record was first created",
+      "example": "2025-01-10"
+    },
+    {
+      "name": "call_count",
+      "type": "number",
+      "minimum": 1,
+      "required": true,
+      "description": "Total number of calls from this number",
+      "example": 3
+    }
+  ],
+  "validationRules": {
+    "phone_number": {
+      "unique": true,
+      "sanitize": "remove_spaces_and_dashes"
+    },
+    "business_name": {
+      "sanitize": "trim_and_title_case"
+    },
+    "contact_email": {
+      "sanitize": "lowercase"
+    }
+  },
+  "indexes": [
+    {
+      "name": "phone_lookup",
+      "columns": ["phone_number"],
+      "type": "unique"
+    },
+    {
+      "name": "business_lookup", 
+      "columns": ["business_name"],
+      "type": "non_unique"
+    }
+  ]
+} 

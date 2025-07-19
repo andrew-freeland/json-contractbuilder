@@ -1,0 +1,66 @@
+{
+  "name": "Webhook Validation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-intake"
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookData = $json;\nconst callSid = webhookData.CallSid;\nconst callerPhone = webhookData.From;\nconst speechResult = webhookData.SpeechResult;\n\nconst required = ['CallSid', 'From', 'SpeechResult', 'To'];\nconst missing = required.filter(field => !webhookData[field]);\n\nif (missing.length > 0) {\n  return {\n    error: 'INVALID_WEBHOOK',\n    message: `Missing fields: ${missing.join(', ')}`,\n    callSid: callSid\n  };\n}\n\nreturn {\n  isValid: true,\n  webhookData: webhookData,\n  callSid: callSid,\n  callerPhone: callerPhone,\n  speechResult: speechResult\n};"
+      },
+      "id": "webhook-validation",
+      "name": "Webhook Validation",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.twiML }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Webhook Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Validation": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-15T10:00:00.000Z",
+  "versionId": "1"
+} 
