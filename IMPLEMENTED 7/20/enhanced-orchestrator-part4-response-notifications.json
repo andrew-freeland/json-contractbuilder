@@ -46,12 +46,10 @@
       "type": "n8n-nodes-base.googleSheets",
       "parameters": {
         "authentication": "googleSheetsOAuth2Api",
-        "operation": "appendOrUpdate",
+        "operation": "append",
         "sheetId": "{{ $env.GOOGLE_SHEETS_ID }}",
         "range": "Engine!A:Z",
-        "options": {
-          "valueInputOption": "RAW"
-        },
+        "valueInputOption": "RAW",
         "dataToSendOnUpdate": {
           "values": [
             [
@@ -83,10 +81,8 @@
       "parameters": {
         "respondWith": "text",
         "responseBody": "{{ $json.twiML }}",
-        "options": {
-          "responseHeaders": {
-            "Content-Type": "application/xml"
-          }
+        "responseHeaders": {
+          "Content-Type": "application/xml"
         }
       },
       "typeVersion": 1,
@@ -155,16 +151,5 @@
     "executionOrder": "v1"
   },
   "versionId": "1.0.0",
-  "meta": {
-    "templateCredsSetupCompleted": true
-  },
-  "id": "enhanced-orchestrator-part4",
-  "tags": [
-    {
-      "createdAt": "2025-01-27T10:00:00.000Z",
-      "updatedAt": "2025-01-27T10:00:00.000Z",
-      "id": "voice-intake",
-      "name": "Voice Intake"
-    }
-  ]
+  "id": "enhanced-orchestrator-part4"
 } 

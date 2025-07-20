@@ -66,11 +66,20 @@
 
 ### **Environment Variables:**
 ```bash
-TWILIO_PHONE_NUMBER=+1234567890
-FOUNDER_PHONE_NUMBER=+0987654321
-NOTIFICATION_EMAIL=notifications@company.com
-FOUNDER_EMAIL=founder@company.com
-GOOGLE_SHEETS_ID=your-sheet-id
+ADMIN_EMAIL=contracts@mybuilderbot.com
+ADMIN_PHONE=+14152728956
+BASE_URL=https://api.openai.com/v1
+BBP_PHONE_NUMBER=+18777024493
+ENABLE_SHEETS_LOGGING=true
+GOOGLE_API_KEY=****
+GOOGLE_MAPS_API_KEY=****
+GOOGLE_SEARCH_ENGINE_ID=***
+GOOGLE_SERVICE_ACCOUNT_EMAIL=bbp-llc@contract-gen-prototype.iam.gserviceaccount.com
+IS_SIMULATION_MODE=false
+OPENAI_API_KEY=****
+TWILIO_ACCOUNT_SID=***
+TWILIO_AUTH_TOKEN=***
+TWILIO_PHONE_NUMBER=+18777024493
 ```
 
 ---
